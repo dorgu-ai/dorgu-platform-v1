@@ -1,0 +1,19 @@
+# Build output
+/bin/
+
+# The Vite build output, which is embedded at build time rather than committed.
+# The .gitkeep placeholder is committed on purpose: without a file in this
+# directory, `go:embed all:dist` matches nothing and `go build` fails on a fresh
+# clone. See internal/webui/embed.go.
+/internal/webui/dist/*
+!/internal/webui/dist/.gitkeep
+
+# Go
+*.test
+*.out
+coverage.*
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
