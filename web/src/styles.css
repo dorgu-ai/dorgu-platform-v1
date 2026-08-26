@@ -1,0 +1,151 @@
+@import 'tailwindcss';
+
+/*
+ * Tailwind v4 configures in CSS, so this file is the design system.
+ *
+ * The palette is deliberately narrow. This is a dense operations surface where
+ * colour carries meaning: red, amber and green mean unhealthy, degraded and
+ * healthy, and nothing else is allowed to use them. Everything structural is a
+ * neutral, so a red dot on the screen is always a fact about the cluster.
+ */
+
+@theme {
+  --color-surface: oklch(21% 0.012 260);
+  --color-surface-raised: oklch(25% 0.012 260);
+  --color-surface-sunken: oklch(17% 0.012 260);
+  --color-line: oklch(32% 0.014 260);
+  --color-line-strong: oklch(42% 0.016 260);
+
+  --color-ink: oklch(96% 0.004 260);
+  --color-ink-muted: oklch(72% 0.012 260);
+  --color-ink-faint: oklch(58% 0.012 260);
+
+  --color-danger: oklch(64% 0.19 22);
+  --color-danger-soft: oklch(30% 0.09 22);
+  --color-warn: oklch(76% 0.15 75);
+  --color-warn-soft: oklch(32% 0.07 75);
+  --color-ok: oklch(71% 0.15 152);
+  --color-ok-soft: oklch(29% 0.07 152);
+  --color-info: oklch(70% 0.13 245);
+  --color-info-soft: oklch(30% 0.07 245);
+
+  --font-mono:
+    ui-monospace, 'SF Mono', 'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace;
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+}
+
+/*
+ * Light mode is the same semantics with the neutrals inverted. It is here from
+ * the start because it costs one block and because a dashboard that only works
+ * in one theme is one somebody will screenshot badly.
+ */
+html:not(.dark) {
+  --color-surface: oklch(99% 0.002 260);
+  --color-surface-raised: oklch(100% 0 0);
+  --color-surface-sunken: oklch(96% 0.004 260);
+  --color-line: oklch(90% 0.006 260);
+  --color-line-strong: oklch(80% 0.01 260);
+
+  --color-ink: oklch(24% 0.012 260);
+  --color-ink-muted: oklch(46% 0.014 260);
+  --color-ink-faint: oklch(60% 0.012 260);
+
+  --color-danger: oklch(52% 0.2 22);
+  --color-danger-soft: oklch(94% 0.04 22);
+  --color-warn: oklch(56% 0.14 75);
+  --color-warn-soft: oklch(95% 0.05 75);
+  --color-ok: oklch(50% 0.14 152);
+  --color-ok-soft: oklch(94% 0.05 152);
+  --color-info: oklch(52% 0.16 245);
+  --color-info-soft: oklch(94% 0.04 245);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-line);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    background-color: var(--color-surface);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    /* Tabular numerals stop replica counts and incident totals from jittering
+       as they change, which on a live feed is the difference between readable
+       and distracting. */
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-info);
+    outline-offset: 2px;
+  }
+
+  /* Scrollbars inside virtualised lists, kept out of the way. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-line-strong);
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+}
+
+@layer utilities {
+  /*
+   * A live update should be noticeable without being a distraction: a single
+   * short flash on a row that changed, and nothing for anyone who has asked
+   * their system not to animate.
+   */
+  @keyframes dorgu-flash {
+    from {
+      background-color: var(--color-info-soft);
+    }
+    to {
+      background-color: transparent;
+    }
+  }
+
+  .flash-on-change {
+    animation: dorgu-flash 700ms ease-out;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .flash-on-change {
+      animation: none;
+    }
+  }
+
+  @keyframes dorgu-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.35;
+    }
+  }
+
+  .pulse-slow {
+    animation: dorgu-pulse 1.8s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pulse-slow {
+      animation: none;
+    }
+  }
+}
