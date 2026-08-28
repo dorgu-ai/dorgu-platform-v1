@@ -116,6 +116,8 @@ func (s *Server) routes() http.Handler {
 	api := http.NewServeMux()
 	api.HandleFunc("GET /api/v1/apps", s.handleApps)
 	api.HandleFunc("GET /api/v1/incidents", s.handleIncidents)
+	api.HandleFunc("GET /api/v1/remediations", s.handleRemediations)
+	api.HandleFunc("GET /api/v1/cluster", s.handleCluster)
 	api.HandleFunc("GET /api/v1/meta", s.handleMeta)
 	api.HandleFunc("GET /api/v1/stream", s.handleStream)
 
@@ -137,6 +139,14 @@ func (s *Server) handleIncidents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, r, s.cfg.Logger, http.StatusOK, s.cfg.Snapshots.Incidents())
 }
 
+func (s *Server) handleRemediations(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, r, s.cfg.Logger, http.StatusOK, s.cfg.Snapshots.Remediations())
+}
+
+func (s *Server) handleCluster(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, r, s.cfg.Logger, http.StatusOK, s.cfg.Snapshots.Cluster())
+}
+
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	// Reports this process, not the cluster. A caches-not-synced answer is a
 	// 503 on purpose: something waiting on this endpoint should wait for a warm
@@ -152,8 +162,8 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 }
 
 // EncodeTopic renders a topic's current snapshot for the SSE stream. It reports
-// false for topics that have no view yet, which is how the M3 and M4 topics stay
-// wired end to end without inventing a payload for them.
+// false for a topic with no view, which is now only DorguEvents: they are
+// watched and cached, and nothing renders them yet.
 func (s *Server) EncodeTopic(topic store.Topic) ([]byte, bool) {
 	var payload any
 	switch topic {
@@ -161,6 +171,10 @@ func (s *Server) EncodeTopic(topic store.Topic) ([]byte, bool) {
 		payload = s.cfg.Snapshots.Apps()
 	case store.TopicIncidents:
 		payload = s.cfg.Snapshots.Incidents()
+	case store.TopicRemediations:
+		payload = s.cfg.Snapshots.Remediations()
+	case store.TopicCluster:
+		payload = s.cfg.Snapshots.Cluster()
 	case store.TopicMeta:
 		payload = s.meta()
 	default:
@@ -186,11 +200,22 @@ func (s *Server) Publish(topic store.Topic) {
 	s.cfg.Broker.Publish(string(topic), data)
 }
 
-// StreamTopics are the topics a connecting client is sent a snapshot of.
+// StreamTopics are the topics a connecting client is sent a snapshot of, in the
+// order they are sent.
 //
-// Only the topics with a view. The others are published to the broker anyway so
-// that adding the M3 Remediations view is a frontend change plus one line here.
-var StreamTopics = []store.Topic{store.TopicMeta, store.TopicApps, store.TopicIncidents}
+// Meta first, deliberately. It carries which cluster this is and which views
+// this build renders, so the shell is correct before any view's data lands and
+// nothing has to re-render when it does.
+//
+// Only the topics with a view. DorguEvents is watched and cached and has none
+// yet, so it is published to the broker and no client is told about it.
+var StreamTopics = []store.Topic{
+	store.TopicMeta,
+	store.TopicApps,
+	store.TopicIncidents,
+	store.TopicRemediations,
+	store.TopicCluster,
+}
 
 func writeJSON(w http.ResponseWriter, r *http.Request, logger *slog.Logger, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

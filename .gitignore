@@ -1,6 +1,11 @@
 # Build output
 /bin/
 
+# A stray binary from building a single main package outside make, e.g.
+# `go build ./hack/...`, which writes into the working directory.
+/devcluster
+/dorgu-dashboard
+
 # The Vite build output, which is embedded at build time rather than committed.
 # The .gitkeep placeholder is committed on purpose: without a file in this
 # directory, `go:embed all:dist` matches nothing and `go build` fails on a fresh

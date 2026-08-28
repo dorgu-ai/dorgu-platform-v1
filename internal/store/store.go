@@ -58,6 +58,16 @@ type Store struct {
 	dorguEvents     map[Key]*dorguv1.DorguEvent
 	deployments     map[Key]*appsv1.Deployment
 	pods            map[Key]*corev1.Pod
+	// nodes is keyed like everything else even though a Node is cluster-scoped,
+	// so its namespace is always empty. One key type beats a second one that
+	// exists only to omit a field.
+	nodes map[Key]*corev1.Node
+
+	// nodeUsage is the last answer from metrics-server, or the last reason it
+	// gave none. It is the one piece of state here that is polled rather than
+	// watched, because the metrics API serves no watch verb; see
+	// internal/metrics for why that is the API's constraint and not a choice.
+	nodeUsage NodeUsage
 
 	// crdsPresent records which dorgu.io kinds the API server actually serves.
 	// A missing CRD and an empty list are different facts and the UI states
@@ -69,6 +79,17 @@ type Store struct {
 	// Until it has, an empty view means "still loading", and saying "no apps"
 	// would be a lie with a green tick on it.
 	synced map[string]bool
+
+	// syncFailed records why an informer gave up on its initial list, which is
+	// a third state the two above cannot express.
+	//
+	// Without it, a watch the API server refuses leaves synced=false forever
+	// and the view shows a loading skeleton that never resolves: the screen
+	// says "reading your cluster" about a read that already failed. The most
+	// likely cause on a real cluster is RBAC, and a namespace-scoped kubeconfig
+	// cannot list Nodes at all, so the Cluster view hits this by design rather
+	// than by accident.
+	syncFailed map[string]string
 
 	// notify is called after every committed change, outside the lock.
 	notify func(Topic)
@@ -89,8 +110,10 @@ func New(notify func(Topic)) *Store {
 		dorguEvents:     map[Key]*dorguv1.DorguEvent{},
 		deployments:     map[Key]*appsv1.Deployment{},
 		pods:            map[Key]*corev1.Pod{},
+		nodes:           map[Key]*corev1.Node{},
 		crdsPresent:     map[string]bool{},
 		synced:          map[string]bool{},
+		syncFailed:      map[string]string{},
 		notify:          notify,
 	}
 }
@@ -281,19 +304,21 @@ func (s *Store) Deployments() []*appsv1.Deployment {
 // Pod
 // ---------------------------------------------------------------------------
 
-// PutPod stores a copy of the Pod.
+// PutPod stores a copy of the Pod. It touches the Cluster topic as well as
+// Apps: saturation is the sum of what the scheduled Pods have claimed, so a Pod
+// arriving or being scheduled changes the Cluster view too.
 func (s *Store) PutPod(obj *corev1.Pod) {
 	if obj == nil {
 		return
 	}
 	s.write(func() {
 		s.pods[keyOf(obj.Namespace, obj.Name)] = obj.DeepCopy()
-	}, TopicApps)
+	}, TopicApps, TopicCluster)
 }
 
 // DeletePod removes a Pod.
 func (s *Store) DeletePod(namespace, name string) {
-	s.write(func() { delete(s.pods, keyOf(namespace, name)) }, TopicApps)
+	s.write(func() { delete(s.pods, keyOf(namespace, name)) }, TopicApps, TopicCluster)
 }
 
 // Pods returns copies of every stored Pod.
@@ -313,7 +338,7 @@ func (s *Store) Pods() []*corev1.Pod {
 
 // SetCRDPresent records whether the API server serves a dorgu.io resource.
 func (s *Store) SetCRDPresent(resource string, present bool) {
-	s.write(func() { s.crdsPresent[resource] = present }, TopicMeta, TopicApps, TopicIncidents)
+	s.write(func() { s.crdsPresent[resource] = present }, allTopicsForReadiness...)
 }
 
 // CRDPresent reports whether a dorgu.io resource is served. An unrecorded
@@ -325,9 +350,39 @@ func (s *Store) CRDPresent(resource string) bool {
 	return s.crdsPresent[resource]
 }
 
-// SetSynced records that a named informer finished its initial list.
+// SetSynced records that a named informer finished its initial list. It clears
+// any recorded failure: an informer that syncs on a retry is no longer failed,
+// and leaving the reason behind would leave a permanent warning on a view that
+// is now correct.
 func (s *Store) SetSynced(name string, synced bool) {
-	s.write(func() { s.synced[name] = synced }, TopicMeta, TopicApps, TopicIncidents)
+	s.write(func() {
+		s.synced[name] = synced
+		if synced {
+			delete(s.syncFailed, name)
+		}
+	}, allTopicsForReadiness...)
+}
+
+// SetSyncFailed records that an informer gave up on its initial list, and why.
+//
+// The reason is shown to the user rather than only logged. A view that cannot
+// be read has to say so: "Dorgu could not list Nodes" is a fact the reader can
+// act on, and an endless loading skeleton is not.
+func (s *Store) SetSyncFailed(name, reason string) {
+	s.write(func() { s.syncFailed[name] = reason }, allTopicsForReadiness...)
+}
+
+// SyncFailure returns why an informer gave up, or "" if it did not.
+func (s *Store) SyncFailure(name string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.syncFailed[name]
+}
+
+// allTopicsForReadiness are the topics whose payload carries a readiness block,
+// so a change in what the caches know republishes every view that reports it.
+var allTopicsForReadiness = []Topic{
+	TopicMeta, TopicApps, TopicIncidents, TopicRemediations, TopicCluster,
 }
 
 // Synced reports whether a named informer finished its initial list.

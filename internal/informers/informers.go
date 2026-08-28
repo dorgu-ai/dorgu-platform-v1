@@ -20,6 +20,11 @@ limitations under the License.
 // the dashboard's latency is one network hop from the change happening, and the
 // cost of an extra browser tab is zero API calls. Polling would have made both
 // worse in exchange for nothing.
+//
+// There is exactly one exception in this process and it is not here: node usage
+// from metrics-server, in internal/metrics. The metrics.k8s.io API serves get
+// and list and no watch verb, so there is nothing to watch. Everything a
+// Kubernetes API can stream, this package streams.
 package informers
 
 import (
@@ -46,6 +51,7 @@ import (
 const (
 	NameDeployments = "deployments"
 	NamePods        = "pods"
+	NameNodes       = "nodes"
 )
 
 // DefaultResync is how often the informers re-deliver their whole cache.
@@ -134,7 +140,7 @@ func New(clients kube.Clients, cache *store.Store, opts Options) (*Set, error) {
 	set := &Set{
 		core: coreinformers.NewSharedInformerFactoryWithOptions(clients.Kubernetes, resync,
 			coreinformers.WithNamespace(namespace),
-			coreinformers.WithTransform(trimPod),
+			coreinformers.WithTransform(trimForCache),
 		),
 		scoped: dynamicinformer.NewFilteredDynamicSharedInformerFactory(
 			clients.Dynamic, resync, namespace, nil),
@@ -150,11 +156,24 @@ func New(clients kube.Clients, cache *store.Store, opts Options) (*Set, error) {
 	return set, nil
 }
 
-// registerNative wires the two built-in kinds the views need.
+// registerNative wires the three built-in kinds the views need.
 //
 // Deployments carry the ownership evidence (labels, annotations, managedFields)
 // and the resource block. Pods carry the container states that make a crash loop
-// visible before the operator has written anything about it.
+// visible before the operator has written anything about it, and the resource
+// requests the Cluster view's saturation figure is the sum of.
+//
+// Nodes are the allocatable pool that saturation is measured against. They are
+// watched rather than read from ClusterPersona.status on purpose: that field is
+// written on a reconcile interval by whatever operator version is installed, and
+// the version that computed it wrongly is still in clusters. The dashboard is
+// the surface where a wrong number reads as authoritative, so it does the
+// arithmetic itself, from the same two lists the CLI uses.
+//
+// The namespace filter on the core factory does not reach the Node informer:
+// client-go's NewFilteredNodeInformer takes no namespace, because a Node is
+// cluster-scoped. So a --namespace run still watches Nodes, and a kubeconfig
+// that may not list them fails the watch rather than silently listing none.
 func (s *Set) registerNative() {
 	deployments := s.core.Apps().V1().Deployments().Informer()
 	s.add(NameDeployments, deployments, nativeHandler[appsv1.Deployment](
@@ -163,6 +182,10 @@ func (s *Set) registerNative() {
 	pods := s.core.Core().V1().Pods().Informer()
 	s.add(NamePods, pods, nativeHandler[corev1.Pod](
 		s.store.PutPod, s.store.DeletePod, s.errorFor(NamePods)))
+
+	nodes := s.core.Core().V1().Nodes().Informer()
+	s.add(NameNodes, nodes, nativeHandler[corev1.Node](
+		s.store.PutNode, s.store.DeleteNode, s.errorFor(NameNodes)))
 }
 
 // registerDorgu wires an informer per installed dorgu.io CRD and records which
@@ -266,14 +289,21 @@ func (s *Set) Start(ctx context.Context) error {
 			return fmt.Errorf("cancelled while syncing informer %s: %w", s.names[i], ctx.Err())
 		}
 
-		// The timeout fired. Serving anyway beats hanging with a closed port:
-		// the payload's readiness flag reports this view as not synced, so the
-		// UI says it is still reading the cluster rather than claiming the view
-		// is empty. The likeliest cause on a real cluster is RBAC.
+		// The timeout fired. Serving anyway beats hanging with a closed port,
+		// but "not synced" on its own would leave the view on a loading
+		// skeleton for as long as the process runs: the screen would say it was
+		// reading a cluster it had already given up on reading. So the reason is
+		// recorded on the store and rendered in the view. The likeliest cause on
+		// a real cluster is RBAC, and a namespace-scoped kubeconfig cannot list
+		// Nodes at all, which the Cluster view now says in words.
+		reason := fmt.Sprintf("the initial list did not complete within %s, "+
+			"which usually means your kubeconfig user may not list or watch this resource",
+			s.syncTimeout)
+		s.store.SetSyncFailed(s.names[i], reason)
 		s.logger.Error("informer did not complete its initial list; serving without it",
 			"informer", s.names[i],
 			"timeout", s.syncTimeout,
-			"effect", "the views that need it will report themselves as not ready",
+			"effect", "the views that need it say so on screen instead of showing an empty table",
 			"hint", "check that your kubeconfig user may list and watch this resource")
 	}
 	return nil
@@ -312,23 +342,34 @@ func (s *Set) errorFor(name string) func(error) {
 	}
 }
 
-// trimPod drops the parts of a Pod no view reads, before it enters the cache.
+// trimForCache drops the parts of an object no view reads, before it enters the
+// cache.
 //
 // Pods are by far the most numerous object watched and managedFields on a Pod is
-// routinely larger than the parts of the spec anyone looks at. Ownership
-// detection needs managedFields on Deployments, which this deliberately leaves
-// untouched.
-func trimPod(obj any) (any, error) {
-	pod, ok := obj.(*corev1.Pod)
-	if !ok {
+// routinely larger than the parts of the spec anyone looks at. A Node's
+// managedFields and its annotations are similarly large and similarly unread:
+// the Cluster view needs allocatable, capacity, conditions, taints and labels,
+// and labels are kept because that is where the role comes from.
+//
+// Ownership detection needs managedFields on Deployments, which this
+// deliberately leaves untouched. Anything else passes through unchanged, so a
+// kind added later is trimmed only when someone decides what it does not need.
+func trimForCache(obj any) (any, error) {
+	switch typed := obj.(type) {
+	case *corev1.Pod:
+		typed.ManagedFields = nil
+		typed.Annotations = nil
+		return typed, nil
+	case *corev1.Node:
+		typed.ManagedFields = nil
+		typed.Annotations = nil
+		return typed, nil
+	default:
 		return obj, nil
 	}
-	pod.ManagedFields = nil
-	pod.Annotations = nil
-	return pod, nil
 }
 
-// compile-time assertion that trimPod matches the transform signature.
-var _ cache.TransformFunc = trimPod
+// compile-time assertion that trimForCache matches the transform signature.
+var _ cache.TransformFunc = trimForCache
 
 var _ runtime.Object = (*corev1.Pod)(nil)

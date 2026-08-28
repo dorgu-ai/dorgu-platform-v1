@@ -1,10 +1,14 @@
-import { createRootRoute, createRoute, createRouter, redirect } from '@tanstack/react-router'
+import {
+  createRootRoute,
+  createRoute,
+  createRouter,
+  lazyRouteComponent,
+  redirect,
+} from '@tanstack/react-router'
 
 import { NotFound, RootLayout } from './components/root-layout'
-import { appsQuery, incidentsQuery, metaQuery } from './lib/api'
+import { appsQuery, clusterQuery, incidentsQuery, metaQuery, remediationsQuery } from './lib/api'
 import { queryClient } from './query-client'
-import { AppsView } from './routes/apps'
-import { IncidentsView } from './routes/incidents'
 
 /**
  * Routes are declared in code rather than generated from the filesystem.
@@ -12,6 +16,17 @@ import { IncidentsView } from './routes/incidents'
  * The route table is four entries and will stay small; the file-based plugin
  * would add a codegen step to the build for no benefit at this size, and a build
  * step that can be skipped is a build step that will be.
+ *
+ * # Every view is a separate chunk
+ *
+ * The whole app was one 487 KB file, so opening Apps downloaded the remediation
+ * diff renderer and the node table with it. Each view is now behind a dynamic
+ * import.
+ *
+ * The loaders still run in parallel with the chunk download rather than after
+ * it: `lazyRouteComponent` defers only the component, and TanStack Router starts
+ * `loader` at the same time. So splitting costs nothing on the critical path,
+ * and `defaultPreload: 'intent'` fetches the next view's chunk on hover.
  */
 const rootRoute = createRootRoute({
   component: RootLayout,
@@ -38,17 +53,37 @@ const appsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/apps',
   loader: () => queryClient.ensureQueryData(appsQuery),
-  component: AppsView,
+  component: lazyRouteComponent(() => import('./routes/apps'), 'AppsView'),
 })
 
 const incidentsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/incidents',
   loader: () => queryClient.ensureQueryData(incidentsQuery),
-  component: IncidentsView,
+  component: lazyRouteComponent(() => import('./routes/incidents'), 'IncidentsView'),
 })
 
-const routeTree = rootRoute.addChildren([indexRoute, appsRoute, incidentsRoute])
+const remediationsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/remediations',
+  loader: () => queryClient.ensureQueryData(remediationsQuery),
+  component: lazyRouteComponent(() => import('./routes/remediations'), 'RemediationsView'),
+})
+
+const clusterRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/cluster',
+  loader: () => queryClient.ensureQueryData(clusterQuery),
+  component: lazyRouteComponent(() => import('./routes/cluster'), 'ClusterView'),
+})
+
+const routeTree = rootRoute.addChildren([
+  indexRoute,
+  appsRoute,
+  incidentsRoute,
+  remediationsRoute,
+  clusterRoute,
+])
 
 export const router = createRouter({
   routeTree,

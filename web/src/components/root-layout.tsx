@@ -35,8 +35,7 @@ export function NotFound() {
     <div className="px-6 py-16 text-center text-xs text-ink-muted">
       <p className="mb-2 text-sm font-semibold text-ink">No such view</p>
       <p>
-        This build has Apps and Incidents. Remediations and Cluster are not built yet, and the
-        header says why.
+        This build has Apps, Incidents, Remediations and Cluster. Pick one from the header.
       </p>
     </div>
   )

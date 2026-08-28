@@ -373,4 +373,24 @@ type Readiness struct {
 	CRDsInstalled bool `json:"crdsInstalled"`
 	// MissingCRDs names the kinds that were looked for and not found.
 	MissingCRDs []string `json:"missingCRDs,omitempty"`
+
+	// Unavailable names the resources this view needs that could not be read at
+	// all, with the reason.
+	//
+	// It is the fifth cause of an empty list and the only one the first four
+	// cannot express: the resource exists, the operator is installed, and the
+	// read was refused. Without it a watch the API server rejects leaves Synced
+	// false forever and the screen sits on a loading skeleton, telling the reader
+	// it is still reading something it gave up on. The likeliest cause is RBAC,
+	// and a namespace-scoped kubeconfig cannot list Nodes at all, so the Cluster
+	// view reaches this by design rather than by accident.
+	Unavailable []UnavailableResource `json:"unavailable,omitempty"`
+}
+
+// UnavailableResource is one resource a view needs and could not read.
+type UnavailableResource struct {
+	// Resource is the plural resource name, as the API server serves it.
+	Resource string `json:"resource"`
+	// Reason is why the read did not succeed, ready to render.
+	Reason string `json:"reason"`
 }

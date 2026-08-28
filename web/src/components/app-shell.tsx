@@ -12,19 +12,20 @@ import { Button } from './ui/button'
 import { Tooltip } from './ui/tooltip'
 
 /**
- * The four views from the plan, with the two that are not built in this release
- * shown as disabled rather than hidden.
+ * The four views from the plan, all of them built.
  *
- * Showing them is the honest option and it is also the more useful one: a reader
- * who can see that Remediations exists and why it is not here yet knows what the
- * product is, and knows this screen is not quietly hiding something. The reason
- * comes from the server, so it cannot drift from what the build actually does.
+ * They are still driven by the server's own list rather than by this array
+ * alone: `available` and `limitation` come from the meta endpoint, so a view that
+ * is disabled or limited in a future build cannot drift from what the build
+ * actually does. A view the server reports as unavailable renders disabled with
+ * its reason on hover, which is how the two that were gated appeared before this
+ * release.
  */
 const NAV = [
   { id: 'apps', label: 'Apps', to: '/apps' },
   { id: 'incidents', label: 'Incidents', to: '/incidents' },
-  { id: 'remediations', label: 'Remediations', to: null },
-  { id: 'cluster', label: 'Cluster', to: null },
+  { id: 'remediations', label: 'Remediations', to: '/remediations' },
+  { id: 'cluster', label: 'Cluster', to: '/cluster' },
 ] as const
 
 export function AppShell({
@@ -49,9 +50,12 @@ export function AppShell({
           <nav className="flex items-center gap-1" aria-label="Views">
             {NAV.map((item) => {
               const status = viewReasons.get(item.id)
-              if (!item.to) {
+
+              // The server decides. A build that gates a view again gets the
+              // disabled treatment with no frontend change.
+              if (status && !status.available) {
                 return (
-                  <Tooltip key={item.id} content={status?.reason ?? 'Not built yet.'}>
+                  <Tooltip key={item.id} content={status.reason || 'Not built in this release.'}>
                     <span
                       aria-disabled="true"
                       className="cursor-not-allowed rounded-md px-2 py-1 text-xs text-ink-faint/60 line-through decoration-ink-faint/40"
@@ -61,15 +65,21 @@ export function AppShell({
                   </Tooltip>
                 )
               }
+
+              // A view that renders and still cannot do something carries its
+              // limitation on hover. It is not marked in the nav: the whole
+              // dashboard is read-only and the footer says so, so a badge on
+              // every entry would repeat the footer rather than add to it.
               return (
-                <Link
-                  key={item.id}
-                  to={item.to}
-                  className="rounded-md px-2 py-1 text-xs text-ink-muted hover:bg-surface-sunken hover:text-ink"
-                  activeProps={{ className: 'bg-surface-sunken text-ink' }}
-                >
-                  {item.label}
-                </Link>
+                <Tooltip key={item.id} content={status?.limitation}>
+                  <Link
+                    to={item.to}
+                    className="rounded-md px-2 py-1 text-xs text-ink-muted hover:bg-surface-sunken hover:text-ink"
+                    activeProps={{ className: 'bg-surface-sunken text-ink' }}
+                  >
+                    {item.label}
+                  </Link>
+                </Tooltip>
               )
             })}
           </nav>
