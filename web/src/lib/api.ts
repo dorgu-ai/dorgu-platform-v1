@@ -1,6 +1,13 @@
 import { queryOptions } from '@tanstack/react-query'
 
-import type { AppsPayload, IncidentsPayload, Meta, Topic } from './types'
+import type {
+  AppsPayload,
+  ClusterPayload,
+  IncidentsPayload,
+  Meta,
+  RemediationsPayload,
+  Topic,
+} from './types'
 
 export const API_BASE = '/api/v1'
 
@@ -67,6 +74,18 @@ export const appsQuery = queryOptions({
 export const incidentsQuery = queryOptions({
   queryKey: ['incidents'] as const,
   queryFn: () => get<IncidentsPayload>('/incidents'),
+  ...live,
+})
+
+export const remediationsQuery = queryOptions({
+  queryKey: ['remediations'] as const,
+  queryFn: () => get<RemediationsPayload>('/remediations'),
+  ...live,
+})
+
+export const clusterQuery = queryOptions({
+  queryKey: ['cluster'] as const,
+  queryFn: () => get<ClusterPayload>('/cluster'),
   ...live,
 })
 

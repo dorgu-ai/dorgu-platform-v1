@@ -54,6 +54,8 @@ func run() error {
 		port          = flag.Int("port", dashboard.DefaultPort, "bind port; 0 asks the kernel for a free one")
 		allowHost     = flag.String("allow-host", "", "comma-separated Host header allowlist, required when --host is not loopback")
 		incidentLimit = flag.Int("incident-limit", 0, "cap the incident feed; 0 uses the default, -1 means no cap")
+		planLimit     = flag.Int("remediation-limit", 0, "cap the remediation list; 0 uses the default, -1 means no cap")
+		metricsEvery  = flag.Duration("metrics-interval", 0, "how often to read node usage from metrics-server; 0 uses the default")
 		logLevel      = flag.String("log-level", "info", "log level: debug, info, warn or error")
 		showVersion   = flag.Bool("version", false, "print the version and exit")
 	)
@@ -76,15 +78,17 @@ func run() error {
 	defer stop()
 
 	err = dashboard.Run(ctx, dashboard.Options{
-		Kubeconfig:    *kubeconfig,
-		Context:       *kubeContext,
-		Namespace:     *namespace,
-		Host:          *host,
-		Port:          *port,
-		AllowedHosts:  splitList(*allowHost),
-		IncidentLimit: *incidentLimit,
-		Version:       version,
-		Logger:        logger,
+		Kubeconfig:       *kubeconfig,
+		Context:          *kubeContext,
+		Namespace:        *namespace,
+		Host:             *host,
+		Port:             *port,
+		AllowedHosts:     splitList(*allowHost),
+		IncidentLimit:    *incidentLimit,
+		RemediationLimit: *planLimit,
+		MetricsInterval:  *metricsEvery,
+		Version:          version,
+		Logger:           logger,
 		OnReady: func(url string) {
 			// stdout, not the logger: this is the one line a person is waiting
 			// for, and it should survive --log-level=error and be pipeable.

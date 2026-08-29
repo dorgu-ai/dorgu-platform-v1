@@ -68,6 +68,9 @@ type Options struct {
 	// IncidentLimit caps the incident feed. Zero uses the view default;
 	// negative means no cap. A capped feed reports the cap in its payload.
 	IncidentLimit int
+	// RemediationLimit caps the remediation list, the same way. Zero uses the
+	// view default; negative means no cap.
+	RemediationLimit int
 
 	// Resync is the informer resync period. Zero uses the informer default.
 	Resync time.Duration
@@ -76,6 +79,13 @@ type Options struct {
 	// PushWindow is how long changes are gathered before a snapshot is pushed.
 	// Zero uses the coalescer default.
 	PushWindow time.Duration
+	// MetricsInterval is how often node usage is re-read from metrics-server.
+	// Zero uses the poller default.
+	//
+	// It is the one interval in this configuration, because it is the one thing
+	// the dashboard polls: the metrics API serves no watch verb, so there is
+	// nothing to subscribe to.
+	MetricsInterval time.Duration
 
 	// Version is reported by the meta endpoint and shown in the UI footer.
 	Version string

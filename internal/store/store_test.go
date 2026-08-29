@@ -173,7 +173,10 @@ func TestTopicsPerResourceKind(t *testing.T) {
 		}, []Topic{TopicApps}},
 		{"pod", func(s *Store) {
 			s.PutPod(&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "a"}})
-		}, []Topic{TopicApps}},
+		}, []Topic{TopicApps, TopicCluster}},
+		{"node", func(s *Store) {
+			s.PutNode(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "a"}})
+		}, []Topic{TopicCluster}},
 		{"remediation", func(s *Store) {
 			s.PutRemediation(&dorguv1.RemediationAction{ObjectMeta: metav1.ObjectMeta{Name: "a"}})
 		}, []Topic{TopicRemediations}},

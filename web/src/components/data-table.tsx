@@ -8,7 +8,7 @@ import {
 } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { ChevronDown, ChevronUp } from 'lucide-react'
-import { useMemo, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { cn } from '@/lib/utils'
 
@@ -51,6 +51,7 @@ export function DataTable<TData extends Identifiable>({
   estimatedRowHeight = 44,
   emptyState,
   flashedIds,
+  rowDetail,
   ariaLabel,
 }: {
   /**
@@ -69,6 +70,20 @@ export function DataTable<TData extends Identifiable>({
   emptyState?: React.ReactNode
   /** Row ids that just changed, flashed once so a live update is noticeable. */
   flashedIds?: ReadonlySet<string>
+  /**
+   * Extra content for an expanded row, rendered below its cells at the full
+   * width of the table.
+   *
+   * It is a slot on the table rather than something a cell renders, because a
+   * tall cell drags every other cell in its row to the vertical centre: put a
+   * remediation plan inside the first column and the phase badge floats halfway
+   * down the page, level with nothing. Rendering it under the cells keeps the
+   * row aligned and gives the content the whole width instead of one column's.
+   *
+   * The virtualiser measures the result, so an expanded row can be any height
+   * without the list mispositioning the rows after it.
+   */
+  rowDetail?: (row: TData) => React.ReactNode
   ariaLabel: string
 }) {
   const [sorting, setSorting] = useState<SortingState>(initialSorting)
@@ -95,14 +110,17 @@ export function DataTable<TData extends Identifiable>({
     overscan: 12,
   })
 
-  const gridTemplate = useMemo(
-    () =>
-      table
-        .getVisibleLeafColumns()
-        .map((column) => (column.columnDef.meta as ColumnMeta | undefined)?.width ?? '1fr')
-        .join(' '),
-    [table],
-  )
+  // Derived on every render rather than memoised.
+  //
+  // useReactTable returns the same object for the life of the component: it
+  // mutates a ref rather than replacing it. So a memo keyed on `table` would
+  // compute once at mount and never again, and a later change that made a column
+  // conditional would silently keep the old track list. This is a map and a join
+  // over a handful of columns, which is not worth a stale-value trap.
+  const visibleColumns = table.getVisibleLeafColumns()
+  const gridTemplate = visibleColumns
+    .map((column) => (column.columnDef.meta as ColumnMeta | undefined)?.width ?? '1fr')
+    .join(' ')
 
   const virtualRows = virtualizer.getVirtualItems()
 
@@ -164,34 +182,54 @@ export function DataTable<TData extends Identifiable>({
               const row = rows[virtualRow.index]
               if (!row) return null
 
+              const detail = rowDetail?.(row.original)
+
               return (
                 <div
                   key={row.id}
-                  role="row"
+                  // A rowgroup, so the cells and any detail below them are two
+                  // rows rather than one row with a stray child inside it.
+                  role="rowgroup"
                   data-index={virtualRow.index}
                   ref={virtualizer.measureElement}
                   className={cn(
-                    'absolute top-0 left-0 grid w-full items-center gap-4 border-b border-line px-4 py-2.5',
-                    'hover:bg-surface-raised',
+                    'absolute top-0 left-0 w-full border-b border-line',
                     flashedIds?.has(row.id) && 'flash-on-change',
                   )}
-                  style={{
-                    gridTemplateColumns: gridTemplate,
-                    transform: `translateY(${virtualRow.start}px)`,
-                  }}
+                  style={{ transform: `translateY(${virtualRow.start}px)` }}
                 >
-                  {row.getVisibleCells().map((cell) => {
-                    const meta = cell.column.columnDef.meta as ColumnMeta | undefined
-                    return (
-                      <div
-                        key={cell.id}
-                        role="cell"
-                        className={cn('min-w-0 text-xs', meta?.numeric && 'text-right')}
-                      >
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  <div
+                    role="row"
+                    className="grid w-full items-center gap-4 px-4 py-2.5 hover:bg-surface-raised"
+                    style={{ gridTemplateColumns: gridTemplate }}
+                  >
+                    {row.getVisibleCells().map((cell) => {
+                      const meta = cell.column.columnDef.meta as ColumnMeta | undefined
+                      return (
+                        <div
+                          key={cell.id}
+                          role="cell"
+                          className={cn('min-w-0 text-xs', meta?.numeric && 'text-right')}
+                        >
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {detail && (
+                    <div role="row">
+                      {/*
+                        One cell spanning every column. Without aria-colspan a
+                        screen reader in table mode sees a row with one cell
+                        against a header that promises several, and reports the
+                        table as ragged.
+                      */}
+                      <div role="cell" aria-colspan={visibleColumns.length} className="px-4 pb-3">
+                        {detail}
                       </div>
-                    )
-                  })}
+                    </div>
+                  )}
                 </div>
               )
             })}

@@ -63,24 +63,60 @@ type ViewStatus struct {
 	Available bool `json:"available"`
 	// Reason explains an unavailable view in one sentence.
 	Reason string `json:"reason,omitempty"`
+	// Limitation states what a view that does render still does not do.
+	//
+	// It exists because "available" and "finished" are not the same thing, and
+	// the gap is the part a reader has to be told about. A screen that shows a
+	// remediation plan and cannot approve it is trustworthy as long as it says
+	// so; the same screen with the gap left implicit reads as a broken approve
+	// button somebody forgot to wire.
+	Limitation string `json:"limitation,omitempty"`
 }
 
-// views is the fixed four-view plan plus the honest reason each unbuilt one is
-// unbuilt. Both gates are recorded in the dashboard plan.
+// views is the four-view plan and, for each, what this build does and does not
+// do with it.
+//
+// # Both gates have lifted, and this is what lifted them
+//
+// Remediations was gated because AI-planned remediations were unappliable:
+// clean-room run #4 measured nine of them and zero that could change a workload.
+// Operator v0.11.0 fixed that at the source. A plan diagnosing a resource change
+// now either carries an appliable patch or Dorgu supplies one from the rule
+// engine's own calculation, and a plan it cannot make appliable is refused so the
+// rule-based proposal takes over, recorded as planSource: rule-based. The same
+// release added spec.steps[].safety, so the guardrail verdict arrives as
+// structured data instead of a prefix spliced onto the model's prose.
+//
+// Cluster was gated because cluster health reported 1689% CPU by summing the
+// requests of pods no node had accepted. Operator v0.11.0 fixed the field and
+// CLI v0.12.0 stopped depending on it. This view goes further and computes
+// saturation itself from the live Node and Pod lists, because the field is
+// written on a reconcile interval by whatever operator version is installed and
+// a card is read as authoritative in a way terminal output is not.
+//
+// # What is still not here
+//
+// The approve action. The dashboard stays read-only until that is a deliberate
+// decision rather than a consequence of shipping a view, so the Remediations
+// screen shows the plan and offers the CLI command that can act on it.
 var views = []ViewStatus{
 	{ID: "apps", Label: "Apps", Available: true},
 	{ID: "incidents", Label: "Incidents", Available: true},
 	{
-		ID:    "remediations",
-		Label: "Remediations",
-		Reason: "Not built yet. AI-planned remediations are not reliably applicable, " +
-			"so showing a plan here would imply an action the product cannot take.",
+		ID:        "remediations",
+		Label:     "Remediations",
+		Available: true,
+		Limitation: "Read-only. This screen shows a plan, its guardrail verdicts and its diff, " +
+			"and cannot approve or apply anything: the dashboard writes nothing to your cluster " +
+			"in this release. Approve with the CLI, which prints the same plan first.",
 	},
 	{
-		ID:    "cluster",
-		Label: "Cluster",
-		Reason: "Not built yet. Cluster health can report impossible CPU figures, " +
-			"and a wrong number in a card looks authoritative in a way terminal output does not.",
+		ID:        "cluster",
+		Label:     "Cluster",
+		Available: true,
+		Limitation: "Saturation is computed here from your live Nodes and Pods rather than read " +
+			"from the operator, so it does not depend on the operator version installed. " +
+			"Used figures need metrics-server and say so when it does not answer.",
 	},
 }
 

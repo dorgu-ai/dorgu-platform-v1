@@ -232,7 +232,7 @@ func TestADeleteWithNoReadableMetadataIsReported(t *testing.T) {
 
 // Pods are the most numerous object watched, and managedFields on a Pod is
 // routinely larger than the parts of the spec anyone looks at.
-func TestTrimPodDropsWhatNoViewReads(t *testing.T) {
+func TestTrimForCacheDropsWhatNoViewReadsFromAPod(t *testing.T) {
 	p := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:          "checkout-abc",
@@ -244,7 +244,7 @@ func TestTrimPodDropsWhatNoViewReads(t *testing.T) {
 		Status: corev1.PodStatus{Phase: corev1.PodRunning},
 	}
 
-	out, err := trimPod(p)
+	out, err := trimForCache(p)
 	require.NoError(t, err)
 
 	trimmed, ok := out.(*corev1.Pod)
@@ -256,9 +256,34 @@ func TestTrimPodDropsWhatNoViewReads(t *testing.T) {
 	assert.Equal(t, corev1.PodRunning, trimmed.Status.Phase)
 }
 
+// A Node carries managedFields and annotations as large as a Pod's and no view
+// reads either. Labels stay: the role badge is read off them.
+func TestTrimForCacheDropsWhatNoViewReadsFromANode(t *testing.T) {
+	n := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:          "ip-10-0-1-20.eu-west-1.compute.internal",
+			Labels:        map[string]string{"node-role.kubernetes.io/worker": ""},
+			Annotations:   map[string]string{"node.alpha.kubernetes.io/ttl": "0"},
+			ManagedFields: []metav1.ManagedFieldsEntry{{Manager: "kubelet"}},
+		},
+		Status: corev1.NodeStatus{NodeInfo: corev1.NodeSystemInfo{KubeletVersion: "v1.33.4"}},
+	}
+
+	out, err := trimForCache(n)
+	require.NoError(t, err)
+
+	trimmed, ok := out.(*corev1.Node)
+	require.True(t, ok)
+	assert.Nil(t, trimmed.ManagedFields)
+	assert.Nil(t, trimmed.Annotations)
+	assert.Equal(t, map[string]string{"node-role.kubernetes.io/worker": ""}, trimmed.Labels,
+		"labels are where the node role comes from")
+	assert.Equal(t, "v1.33.4", trimmed.Status.NodeInfo.KubeletVersion)
+}
+
 // Ownership detection needs managedFields on Deployments, so the transform must
-// leave anything that is not a Pod completely alone.
-func TestTrimPodLeavesDeploymentManagedFieldsIntact(t *testing.T) {
+// leave anything it has no rule for completely alone.
+func TestTrimForCacheLeavesDeploymentManagedFieldsIntact(t *testing.T) {
 	d := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:          "checkout",
@@ -267,7 +292,7 @@ func TestTrimPodLeavesDeploymentManagedFieldsIntact(t *testing.T) {
 		},
 	}
 
-	out, err := trimPod(d)
+	out, err := trimForCache(d)
 	require.NoError(t, err)
 	assert.Same(t, d, out)
 	assert.Len(t, d.ManagedFields, 1, "ownership evidence must survive")

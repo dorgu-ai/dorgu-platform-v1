@@ -78,7 +78,7 @@ func newHarness(t *testing.T, assets fs.FS, opts ...func(*Config)) *harness {
 // ready marks every informer synced and every CRD installed, which is the
 // steady state on a cluster with the operator running.
 func (h *harness) ready() {
-	for _, name := range []string{informers.NameDeployments, informers.NamePods} {
+	for _, name := range []string{informers.NameDeployments, informers.NamePods, informers.NameNodes} {
 		h.store.SetSynced(name, true)
 	}
 	for _, resource := range kube.DorguResources {
@@ -235,12 +235,22 @@ func TestMetaNamesTheClusterAndStatesWhatIsNotBuilt(t *testing.T) {
 	for _, v := range meta.Views {
 		byID[v.ID] = v
 	}
-	assert.True(t, byID["apps"].Available)
-	assert.True(t, byID["incidents"].Available)
-	assert.False(t, byID["remediations"].Available)
-	assert.NotEmpty(t, byID["remediations"].Reason, "an unbuilt view has to say why")
-	assert.False(t, byID["cluster"].Available)
-	assert.NotEmpty(t, byID["cluster"].Reason)
+	// All four views render in this build. Both gates lifted: operator v0.11.1
+	// makes AI-planned remediations appliable or falls back to rule-based, and
+	// operator v0.11.0 with CLI v0.12.0 fixed the saturation figure.
+	for _, id := range []string{"apps", "incidents", "remediations", "cluster"} {
+		assert.True(t, byID[id].Available, "%s renders in this build", id)
+		assert.Empty(t, byID[id].Reason, "%s is available, so it has nothing to excuse", id)
+	}
+
+	// Available is not finished, and the gap is the part a reader has to be
+	// told. The Remediations screen shows a plan and cannot approve it, and the
+	// nav says so rather than leaving it to be discovered.
+	assert.NotEmpty(t, byID["remediations"].Limitation,
+		"the read-only limit on Remediations has to be stated")
+	assert.Contains(t, byID["remediations"].Limitation, "Read-only")
+	assert.NotEmpty(t, byID["cluster"].Limitation)
+	assert.Empty(t, byID["apps"].Limitation)
 }
 
 func TestMetaReportsMissingCRDs(t *testing.T) {

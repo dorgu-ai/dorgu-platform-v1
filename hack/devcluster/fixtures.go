@@ -65,6 +65,38 @@ type workloadFixture struct {
 // managerKubectl is what a real `kubectl apply -f` records.
 const managerKubectl = "kubectl-client-side-apply"
 
+// nodeForPod spreads the fixture pods over the two nodes, so per-node saturation
+// differs between them. A cluster where every node reads the same makes the
+// per-node columns look decorative.
+func nodeForPod(index int32) string {
+	if index%2 == 0 {
+		return "node-a"
+	}
+	return "node-b"
+}
+
+// podRequestsFor is what one pod of this workload claims from its node.
+//
+// It mirrors the Deployment's own container requests, because a pod claiming
+// something different from the Deployment that created it is a state no real
+// cluster produces and would make the numbers unexplainable.
+func podRequestsFor(spec workloadFixture) corev1.ResourceRequirements {
+	requests := corev1.ResourceList{}
+	if spec.cpuRequest != "" {
+		requests[corev1.ResourceCPU] = quantity(spec.cpuRequest)
+	}
+	// The fixtures set a memory limit rather than a request. A container with a
+	// limit and no request is scheduled against the limit, so that is what the
+	// pod claims.
+	if spec.memoryLimit != "" {
+		requests[corev1.ResourceMemory] = quantity(spec.memoryLimit)
+	}
+	if len(requests) == 0 {
+		return corev1.ResourceRequirements{}
+	}
+	return corev1.ResourceRequirements{Requests: requests}
+}
+
 // fixtureWorkloads is a brownfield cluster in four Deployments.
 //
 // Each one exercises a path the views have to get right:
@@ -213,10 +245,24 @@ func createWorkload(ctx context.Context, typed kubernetes.Interface, spec worklo
 				Name:      fmt.Sprintf("%s-%d", spec.name, i),
 				Labels:    selector,
 			},
-			Spec: corev1.PodSpec{Containers: []corev1.Container{{
-				Name:  spec.container,
-				Image: spec.image,
-			}}},
+			Spec: corev1.PodSpec{
+				// A node accepts these, which is what makes them hold an
+				// allocation. Without a nodeName the Cluster view would
+				// correctly count every fixture pod as unschedulable and report
+				// 0% requested, so the one screen this cluster exists to verify
+				// would show nothing.
+				//
+				// envtest runs no scheduler, so this is the binding a scheduler
+				// would have written. Requests are set here for the same reason:
+				// they are what saturation is the sum of, and a pod with none
+				// contributes nothing to look at.
+				NodeName: nodeForPod(i),
+				Containers: []corev1.Container{{
+					Name:      spec.container,
+					Image:     spec.image,
+					Resources: podRequestsFor(spec),
+				}},
+			},
 		}
 		createdPod, err := typed.CoreV1().Pods(spec.namespace).Create(ctx, pod, metav1.CreateOptions{})
 		if err != nil {

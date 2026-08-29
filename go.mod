@@ -3,7 +3,7 @@ module github.com/dorgu-ai/dorgu-platform-v1
 go 1.26.0
 
 require (
-	github.com/dorgu-ai/dorgu-operator v0.10.0
+	github.com/dorgu-ai/dorgu-operator v0.11.1
 	github.com/stretchr/testify v1.11.1
 	k8s.io/api v0.37.0
 	k8s.io/apimachinery v0.37.0

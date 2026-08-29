@@ -114,6 +114,11 @@ func run(crdDir string, noCRDs bool, breakApp string) error {
 // a persona whose name does not match its Deployment, an unmanaged app, an
 // unmonitored Deployment nobody has imported, and a system namespace that should
 // stay out of the way.
+//
+// It also seeds the two states the Remediations and Cluster views were gated on,
+// so both can be seen working rather than taken on trust: a plan whose guardrail
+// clamped one field and rejected another, and three pods no node can accept,
+// which are the pods whose requests used to be summed into a 1689% CPU figure.
 func seed(ctx context.Context, cfg *runtimeConfig, noCRDs bool, breakApp string) error {
 	typed, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
@@ -149,8 +154,20 @@ func seed(ctx context.Context, cfg *runtimeConfig, noCRDs bool, breakApp string)
 		}
 	}
 
+	// Nodes and the pods nothing can place. Both are native objects, so they are
+	// seeded whether or not the dorgu.io CRDs are installed: the Cluster view
+	// computes saturation from them and works with no operator at all, which is
+	// worth being able to check.
+	if err := createNodes(ctx, typed); err != nil {
+		return err
+	}
+	if err := createUnschedulablePods(ctx, typed); err != nil {
+		return err
+	}
+
 	if noCRDs {
-		fmt.Println("seeded workloads; dorgu.io CRDs deliberately not installed")
+		fmt.Println("seeded workloads, nodes and unschedulable pods; " +
+			"dorgu.io CRDs deliberately not installed")
 		return nil
 	}
 
@@ -180,13 +197,35 @@ func seed(ctx context.Context, cfg *runtimeConfig, noCRDs bool, breakApp string)
 		}
 	}
 
+	for _, remediation := range fixtureRemediations() {
+		desired := remediation.Status
+		if err := ctrlClient.Create(ctx, remediation); err != nil {
+			return fmt.Errorf("creating remediation %s: %w", remediation.Name, err)
+		}
+		remediation.Status = desired
+		if err := ctrlClient.Status().Update(ctx, remediation); err != nil {
+			return fmt.Errorf("setting status on remediation %s: %w", remediation.Name, err)
+		}
+	}
+
+	clusterPersona := fixtureClusterPersona()
+	desiredClusterStatus := clusterPersona.Status
+	if err := ctrlClient.Create(ctx, clusterPersona); err != nil {
+		return fmt.Errorf("creating the cluster persona: %w", err)
+	}
+	clusterPersona.Status = desiredClusterStatus
+	if err := ctrlClient.Status().Update(ctx, clusterPersona); err != nil {
+		return fmt.Errorf("setting status on the cluster persona: %w", err)
+	}
+
 	if breakApp != "" {
 		if err := breakWorkload(ctx, typed, ctrlClient, breakApp); err != nil {
 			return err
 		}
 	}
 
-	fmt.Println("seeded: 4 Deployments, 3 personas, 3 incidents")
+	fmt.Println("seeded: 4 Deployments, 2 nodes, 3 unschedulable pods, 3 personas, " +
+		"1 cluster persona, 3 incidents, 4 remediations")
 	return nil
 }
 

@@ -175,6 +175,7 @@ func TestAbsentCRDsGetNoInformerAndAreRecordedAsMissing(t *testing.T) {
 	watched := f.set.Watched()
 	assert.Contains(t, watched, NameDeployments)
 	assert.Contains(t, watched, NamePods)
+	assert.Contains(t, watched, NameNodes)
 	assert.Contains(t, watched, kube.ResourceApplicationPersonas)
 	assert.NotContains(t, watched, kube.ResourceIncidentMemories)
 
@@ -186,7 +187,8 @@ func TestEveryInstalledResourceGetsAnInformer(t *testing.T) {
 	f := newFixture(t, allPresent())
 
 	watched := f.set.Watched()
-	assert.Len(t, watched, len(kube.DorguResources)+2, "the five CRDs plus Deployments and Pods")
+	assert.Len(t, watched, len(kube.DorguResources)+3,
+		"the five CRDs plus Deployments, Pods and Nodes")
 	for _, r := range kube.DorguResources {
 		assert.Contains(t, watched, r)
 	}

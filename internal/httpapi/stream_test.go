@@ -214,10 +214,25 @@ func TestPushedPayloadMatchesTheRESTRead(t *testing.T) {
 func TestTopicsWithNoViewAreNotEncoded(t *testing.T) {
 	h := newHarness(t, nil)
 
-	for _, topic := range []store.Topic{store.TopicRemediations, store.TopicEvents, store.TopicCluster} {
-		_, ok := h.server.EncodeTopic(topic)
-		assert.False(t, ok, "%s has no view in this build", topic)
-		assert.NotPanics(t, func() { h.server.Publish(topic) })
+	// DorguEvents is the only topic left without a view. It is watched and
+	// cached, and nothing renders it, so it must encode to nothing rather than
+	// to an empty payload a client would apply.
+	_, ok := h.server.EncodeTopic(store.TopicEvents)
+	assert.False(t, ok, "events has no view in this build")
+	assert.NotPanics(t, func() { h.server.Publish(store.TopicEvents) })
+}
+
+// Every topic a connecting client is sent a snapshot of has to encode to one.
+// A topic in StreamTopics that EncodeTopic refuses would leave that view with no
+// initial data and no way to know it was missing.
+func TestEveryStreamedTopicEncodes(t *testing.T) {
+	h := newHarness(t, nil)
+	h.ready()
+
+	for _, topic := range StreamTopics {
+		data, ok := h.server.EncodeTopic(topic)
+		require.True(t, ok, "%s is streamed, so it must encode", topic)
+		assert.NotEmpty(t, data)
 	}
 }
 

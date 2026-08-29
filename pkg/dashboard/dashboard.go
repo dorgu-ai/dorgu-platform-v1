@@ -41,6 +41,7 @@ import (
 	"github.com/dorgu-ai/dorgu-platform-v1/internal/httpapi"
 	"github.com/dorgu-ai/dorgu-platform-v1/internal/informers"
 	"github.com/dorgu-ai/dorgu-platform-v1/internal/kube"
+	"github.com/dorgu-ai/dorgu-platform-v1/internal/metrics"
 	"github.com/dorgu-ai/dorgu-platform-v1/internal/sse"
 	"github.com/dorgu-ai/dorgu-platform-v1/internal/store"
 	"github.com/dorgu-ai/dorgu-platform-v1/internal/webui"
@@ -123,8 +124,9 @@ func Run(ctx context.Context, opts Options) error {
 	srv, err = httpapi.New(httpapi.Config{
 		Store: cache,
 		Snapshots: httpapi.NewSnapshots(cache, httpapi.SnapshotOptions{
-			Namespace:     cfg.Namespace,
-			IncidentLimit: cfg.IncidentLimit,
+			Namespace:        cfg.Namespace,
+			IncidentLimit:    cfg.IncidentLimit,
+			RemediationLimit: cfg.RemediationLimit,
 		}),
 		Broker: broker,
 		Logger: logger,
@@ -153,10 +155,26 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
+	// Node usage is the one thing here that is polled rather than watched,
+	// because the metrics.k8s.io API serves no watch verb. A cluster without
+	// metrics-server is the ordinary case and is not a startup failure: the
+	// poller records the reason, the Cluster view renders used as n/a with it,
+	// and requested reports either way.
+	usagePoller, err := metrics.NewPoller(metrics.Options{
+		Client:   clients.Kubernetes,
+		Store:    cache,
+		Logger:   logger,
+		Interval: cfg.MetricsInterval,
+	})
+	if err != nil {
+		return err
+	}
+
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	go coalescer.Run(runCtx)
+	go usagePoller.Run(runCtx)
 
 	logger.Info("warming caches", "informers", set.Watched())
 	if err := set.Start(runCtx); err != nil {
