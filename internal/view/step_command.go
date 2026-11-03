@@ -75,7 +75,6 @@ var (
 	readOnlyKubectlVerbs = map[string]bool{
 		"api-resources": true,
 		"api-versions":  true,
-		"auth":          true,
 		"cluster-info":  true,
 		"describe":      true,
 		"diff":          true,
@@ -92,6 +91,20 @@ var (
 	readOnlyRolloutSubcommands = map[string]bool{
 		"history": true,
 		"status":  true,
+	}
+
+	// readOnlyAuthSubcommands are the `kubectl auth` forms that only read.
+	// reconcile writes RBAC, so auth cannot be a read-only verb as a whole.
+	readOnlyAuthSubcommands = map[string]bool{
+		"can-i":  true,
+		"whoami": true,
+	}
+
+	// verbsWithSubcommands are verbs whose effect depends on the subcommand
+	// that follows them, mapped to the subcommands that only read.
+	verbsWithSubcommands = map[string]map[string]bool{
+		"auth":    readOnlyAuthSubcommands,
+		"rollout": readOnlyRolloutSubcommands,
 	}
 )
 
@@ -191,8 +204,8 @@ func readsOnly(command string) bool {
 	if !found {
 		return false
 	}
-	if verb == "rollout" {
-		return rolloutReadsOnly(arguments)
+	if readOnlySubcommands, ok := verbsWithSubcommands[verb]; ok {
+		return subcommandReadsOnly(arguments, readOnlySubcommands)
 	}
 	if mutatingKubectlVerbs[verb] {
 		return false
@@ -248,15 +261,16 @@ func kubectlVerb(command string) (verb string, arguments []string, found bool) {
 	return "", nil, false
 }
 
-// rolloutReadsOnly classifies a `kubectl rollout` invocation from its remaining
-// arguments. A bare `kubectl rollout` names no subcommand, so it is refused
-// along with everything else that cannot be classified.
-func rolloutReadsOnly(arguments []string) bool {
-	for _, argument := range arguments {
-		if strings.HasPrefix(argument, "-") {
-			continue
-		}
-		return readOnlyRolloutSubcommands[argument]
+// subcommandReadsOnly classifies a verb that splits on its subcommand, such as
+// `kubectl rollout` or `kubectl auth`, from the arguments after the verb.
+//
+// The subcommand must be the very next token. A flag in that position may take
+// a value, and that value could be a read-only subcommand name hiding the real
+// one (`kubectl rollout -n status restart`), so it is refused rather than
+// skipped. A bare verb names no subcommand and is refused too.
+func subcommandReadsOnly(arguments []string, readOnlySubcommands map[string]bool) bool {
+	if len(arguments) == 0 || strings.HasPrefix(arguments[0], "-") {
+		return false
 	}
-	return false
+	return readOnlySubcommands[arguments[0]]
 }

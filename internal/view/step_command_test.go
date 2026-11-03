@@ -88,6 +88,21 @@ func TestReadsOnlyClassifiesTheVerbPositionally(t *testing.T) {
 		{"rollout pause writes", "kubectl rollout pause deploy/checkout", false},
 		{"a bare rollout cannot be classified", "kubectl rollout", false},
 		{"rollout with only flags cannot be classified", "kubectl rollout --revision=2", false},
+
+		// auth splits on its subcommand too: reconcile writes RBAC.
+		{"auth can-i reads", "kubectl auth can-i get pods -n apps", true},
+		{"auth whoami reads", "kubectl auth whoami", true},
+		{"auth reconcile writes RBAC", "kubectl auth reconcile -f rbac.yaml", false},
+		{"auth with a flag before reconcile still writes", "kubectl auth --dry-run=none reconcile -f rbac.yaml", false},
+		{"an unknown auth subcommand is refused", "kubectl auth frobnicate", false},
+		{"a bare auth names no subcommand", "kubectl auth", false},
+
+		// A flag before the subcommand could be hiding one in its value, the
+		// same shape as the original verb bypass, so it is refused.
+		{"a namespace named status cannot hide a rollout restart",
+			"kubectl rollout -n status restart deploy/checkout", false},
+		{"a namespace named can-i cannot hide an auth reconcile",
+			"kubectl auth -n can-i reconcile -f rbac.yaml", false},
 		{"a global flag before rollout status", "kubectl -n apps rollout status deploy/x", true},
 	}
 
