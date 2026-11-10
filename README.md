@@ -10,12 +10,18 @@ This is the whole security model, and it is short enough to check yourself:
 
 - **It uses your kubeconfig.** The same file `kubectl` reads, the same
   `KUBECONFIG` variable, the same current context.
-- **It holds no credentials.** There is no token, no stored secret and no service
-  account anywhere in this repo. Search it.
+- **It holds no Kubernetes credentials.** No stored secret and no service account
+  anywhere in this repo. Search it. The one secret it does create is a random
+  per-run session token, described below, which dies with the process.
 - **It needs no permissions of its own.** No ClusterRole to install, nothing to
   grant. If you cannot list Deployments, neither can the dashboard.
-- **It binds to 127.0.0.1.** Nothing outside your machine can reach it. Binding
-  elsewhere requires a flag and prints a warning saying what you are doing.
+- **It binds to 127.0.0.1 on a random free port.** Nothing outside your machine can
+  reach it. Binding elsewhere requires a flag and prints a warning saying what you
+  are doing.
+- **Every API call needs a per-session token.** It is random, 256 bits, generated
+  at startup, and in the URL the dashboard prints and opens. Loopback keeps the
+  network out; the token keeps out everything else on your machine that can open a
+  socket, including a web page in another tab. See [Session security](#session-security).
 - **It writes nothing.** Every endpoint is a read. There is no mutation in this
   release at all. The Remediations view shows you a plan and hands you the CLI
   command that can act on it; it cannot approve or apply anything itself.
@@ -187,7 +193,8 @@ make all      # build the SPA, then the binary with it embedded
 ./bin/dorgu-dashboard
 ```
 
-Then open the URL it prints, which is `http://127.0.0.1:7171/` by default.
+Then open the URL it prints. It looks like `http://127.0.0.1:41873/?token=...`: a
+random free port and a session token, both new on every start.
 
 ```
 Usage:
@@ -197,7 +204,7 @@ Usage:
   --context          kubeconfig context to use (default: the current context)
   --namespace        limit every view to one namespace (default: all namespaces)
   --host             bind address (default: 127.0.0.1)
-  --port             bind port; 0 asks the kernel for a free one (default: 7171)
+  --port             bind port; 0 picks a free one (default: 0)
   --allow-host       Host header allowlist, required when --host is not loopback
   --incident-limit   cap the incident feed; 0 uses the default, -1 means no cap
   --remediation-limit  cap the remediation list; 0 uses the default, -1 means no cap
@@ -217,6 +224,41 @@ produce a figure that is wrong in a way nobody could detect from the screen.
 Nodes are cluster-scoped, so a namespace-scoped user cannot read them at all and
 the Cluster view says that instead of showing an empty table.
 
+### Session security
+
+The dashboard can show everything your kubeconfig can read, so it is locked down
+the way a local server that may one day approve things should be:
+
+1. **Loopback, random port.** `127.0.0.1` and a port the kernel picks. `--port`
+   fixes it if you want a stable one.
+2. **A per-session token.** Generated at startup from `crypto/rand`, and part of
+   the URL that is printed and opened. The first request carries it in the query
+   string; the server answers with a redirect to the same URL **without** it, and
+   sets an `HttpOnly`, `SameSite=Strict` cookie. The token is therefore not left in
+   the address bar, the history or a `Referer` header. A bad token is a `401` and
+   sets nothing.
+3. **Every `/api` route needs it**, the live stream included: the cookie, or an
+   `Authorization: Bearer <token>` header for a script such as `curl`. A token in
+   an API query string is not accepted, because it would end up in logs. The embedded
+   SPA bundle and `/healthz` are served without it; neither holds cluster data.
+4. **Host and Origin checks on every request.** The `Host` header must be on the
+   allowlist (`localhost`, `127.0.0.1`, `[::1]`), which is the DNS-rebinding
+   defence. Any request that carries an `Origin` header must be same-origin with
+   its `Host`, on any method. No CORS headers are ever sent.
+5. **Ready for write routes.** All of the above wrap the whole route table rather
+   than being attached per route, and a state-changing request authenticated by the
+   cookie must also carry an `Origin`. The tests put a `POST`/`PUT`/`PATCH`/`DELETE`
+   route behind the same chain, so a future write endpoint inherits checks that are
+   already proven.
+
+A non-loopback `--host` still needs `--allow-host`, and prints a loud warning: the
+token then crosses the network in clear text over HTTP and is the only thing
+between your cluster and the reader. Put TLS in front of it.
+
+The header also shows **who the cluster thinks you are**, from a
+`SelfSubjectReview` (Kubernetes 1.28 or newer). It is the identity every read is
+made as. On an older or locked-down cluster it says the identity is unavailable.
+
 ### As part of the CLI
 
 The dashboard is a Go package first and a binary second, so `dorgu dashboard` can
@@ -228,12 +270,33 @@ import "github.com/dorgu-ai/dorgu-platform-v1/pkg/dashboard"
 err := dashboard.Run(ctx, dashboard.Options{
     Kubeconfig: kubeconfigPath,
     Namespace:  namespace,
-    OnReady:    func(url string) { fmt.Println("dashboard:", url) },
+    OnReady:    func(url string) { fmt.Println("dashboard:", url) }, // carries the session token
 })
 ```
 
 `cmd/dorgu-dashboard` is a thin wrapper over that same call, so the standalone
 binary and the CLI subcommand cannot behave differently.
+
+#### How the built SPA reaches the CLI binary
+
+`go:embed` can only embed files that are in the module Go fetches, and the SPA is
+built output that is not committed to `main`. So **every release tag points at a
+commit that contains the built `internal/webui/dist`**, and the CLI depends on that
+tag. `go install github.com/dorgu-ai/dorgu/cmd/dorgu@latest` then produces a
+binary with a working dashboard and no Node toolchain on the installing machine.
+
+`main` stays free of build output: the release commit is a child of `main` that is
+reachable only through its tag. Cut one with:
+
+```bash
+make release-tag TAG=v0.1.0    # builds the SPA, commits dist on a detached HEAD, tags it
+git push origin refs/tags/v0.1.0
+```
+
+The script refuses a dirty tree and a tag that already exists, and verifies the
+embedded `index.html` before tagging. A pseudo-version of a branch commit (what
+you get from `go get ...@<sha>`) has **no** SPA: the dashboard still starts, the
+API works, and `/` explains that the UI is absent. Always depend on a release tag.
 
 ## Trying it without a cluster
 
@@ -325,6 +388,9 @@ make check      # everything CI runs: gofmt, vet, race tests, web typecheck, web
 make web        # build the SPA into internal/webui/dist
 make build      # build the binary with whatever is in that directory
 make web-dev    # Vite dev server on :5173, proxying /api to a dashboard on :7171
+                # start one with: dorgu-dashboard --port 7171, then
+                # DORGU_DASHBOARD_TOKEN=<the token it printed> make web-dev
+make release-tag TAG=v0.1.0   # tag a commit that carries the built SPA (see above)
 make cover      # test coverage per package
 ```
 
@@ -345,9 +411,8 @@ and prefetched on hover. If a `vendor-*` chunk grows, a dependency did.
   and the honest affordance is the CLI command that can act, not a disabled
   button that reads like something broken. Approve with
   `dorgu remediation approve`, which prints the same plan first.
-- **Authentication.** There is none, by design: the dashboard binds loopback and
-  holds no credentials, and an unauthenticated dashboard reachable from a network
-  would be the single strongest objection anyone could raise against it.
+- **User accounts.** There are none: one session token per run, for the person who
+  started it. The dashboard acts as your kubeconfig and nothing else.
 - **Telemetry.** Nothing here phones home.
 - **A DorguEvents view.** The events are watched and cached and nothing renders
   them yet.

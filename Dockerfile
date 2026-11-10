@@ -1,9 +1,11 @@
 # Container image for the standalone dashboard.
 #
 # The plan's "later" case: this drops into the operator's Helm chart when an
-# in-cluster dashboard is wanted. It is not the supported path today, and running
-# it in a cluster means running an unauthenticated read view of that cluster
-# behind whatever you put in front of it. Read the auth note in the README first.
+# in-cluster dashboard is wanted. It is not the supported path today. The
+# dashboard prints a per-run session token in its URL on stdout; behind a
+# non-loopback bind that token is the only thing protecting a read view of the
+# cluster and it travels over plain HTTP, so put TLS in front. Read the security
+# note in the README first.
 
 # --- frontend ------------------------------------------------------------------
 FROM node:22-alpine AS web
@@ -51,4 +53,4 @@ EXPOSE 7171
 # it from answering to arbitrary hostnames. Making that a deliberate argument
 # rather than a default is the point.
 ENTRYPOINT ["/dorgu-dashboard"]
-CMD ["--host", "0.0.0.0", "--allow-host", "localhost,127.0.0.1"]
+CMD ["--host", "0.0.0.0", "--port", "7171", "--allow-host", "localhost,127.0.0.1"]
