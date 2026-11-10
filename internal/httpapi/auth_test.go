@@ -81,7 +81,7 @@ func (pr probeRequest) build() *http.Request {
 		req.Header.Set(k, v)
 	}
 	if pr.cookie != "" {
-		req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: pr.cookie})
+		req.AddCookie(&http.Cookie{Name: SessionCookieName(host), Value: pr.cookie})
 	}
 	return req
 }
@@ -291,7 +291,8 @@ func TestTheTokenIsExchangedForAnHttpOnlyStrictCookieAndStrippedFromTheURL(t *te
 			cookies := rec.Result().Cookies()
 			require.Len(t, cookies, 1)
 			c := cookies[0]
-			assert.Equal(t, SessionCookieName, c.Name)
+			assert.Equal(t, SessionCookieName(probeHost), c.Name)
+			assert.Equal(t, "dorgu_session_41234", c.Name, "the name carries the port the browser used")
 			assert.Equal(t, testToken, c.Value)
 			assert.True(t, c.HttpOnly, "script must not be able to read the session")
 			assert.Equal(t, http.SameSiteStrictMode, c.SameSite)
@@ -382,13 +383,13 @@ func TestTheStreamWithoutATokenIsRefusedOverARealConnection(t *testing.T) {
 		{"no credentials", func(*http.Request) {}, http.StatusUnauthorized},
 		{"wrong bearer", func(r *http.Request) { r.Header.Set("Authorization", "Bearer nope") }, http.StatusUnauthorized},
 		{"wrong cookie", func(r *http.Request) {
-			r.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "nope"})
+			r.AddCookie(&http.Cookie{Name: SessionCookieName(hostOf(ts.URL)), Value: "nope"})
 		}, http.StatusUnauthorized},
 		{"token in the query", func(r *http.Request) {
 			r.URL.RawQuery = url.Values{TokenQueryParam: {testToken}}.Encode()
 		}, http.StatusUnauthorized},
 		{"valid cookie", func(r *http.Request) {
-			r.AddCookie(&http.Cookie{Name: SessionCookieName, Value: testToken})
+			r.AddCookie(&http.Cookie{Name: SessionCookieName(hostOf(ts.URL)), Value: testToken})
 		}, http.StatusOK},
 		{"valid bearer", func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+testToken) }, http.StatusOK},
 	}
@@ -480,4 +481,47 @@ func TestMetaSaysWhenTheIdentityIsUnavailable(t *testing.T) {
 
 	assert.False(t, meta.Identity.Available)
 	assert.Equal(t, "needs Kubernetes 1.28", meta.Identity.Reason)
+}
+
+// hostOf returns the host:port of a URL, which is what the Host header carries.
+func hostOf(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	return u.Host
+}
+
+func TestSessionCookieNameCarriesThePortTheBrowserUsed(t *testing.T) {
+	tests := []struct{ host, want string }{
+		{"127.0.0.1:41873", "dorgu_session_41873"},
+		{"localhost:7171", "dorgu_session_7171"},
+		{"[::1]:9000", "dorgu_session_9000"},
+		{"127.0.0.1", "dorgu_session"},
+		{"", "dorgu_session"},
+		{"127.0.0.1:", "dorgu_session"},
+		{"127.0.0.1:http", "dorgu_session"},
+		{"127.0.0.1:80;evil=1", "dorgu_session"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.host, func(t *testing.T) {
+			assert.Equal(t, tc.want, SessionCookieName(tc.host))
+		})
+	}
+}
+
+// A cookie that belongs to the dashboard on another port is not this
+// dashboard's session, even when the token inside it is the right one: the name
+// is what keeps one server from reading the other's.
+func TestACookieNamedForAnotherPortIsNotASession(t *testing.T) {
+	probe := &writeProbe{}
+	req := httptest.NewRequest(http.MethodGet, "http://"+probeHost+"/api/v1/read", nil)
+	req.Host = probeHost
+	req.AddCookie(&http.Cookie{Name: SessionCookieName("127.0.0.1:50000"), Value: testToken})
+
+	rec := httptest.NewRecorder()
+	probeChain(probe).ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	assert.Zero(t, probe.hits)
 }

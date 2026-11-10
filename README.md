@@ -186,7 +186,7 @@ If you ever find yourself reaching for reload, that is a bug. Report it.
 
 ## Install and run
 
-Prerequisites: Go 1.25 or newer, Node 20 or newer, and a kubeconfig.
+Prerequisites: Go 1.26 or newer, Node 20.19 or newer (22.12 or newer on the 22 line; CI and the Dockerfile use 22), and a kubeconfig.
 
 ```bash
 make all      # build the SPA, then the binary with it embedded
@@ -234,7 +234,7 @@ the way a local server that may one day approve things should be:
 2. **A per-session token.** Generated at startup from `crypto/rand`, and part of
    the URL that is printed and opened. The first request carries it in the query
    string; the server answers with a redirect to the same URL **without** it, and
-   sets an `HttpOnly`, `SameSite=Strict` cookie. The token is therefore not left in
+   sets an `HttpOnly`, `SameSite=Strict` cookie named `dorgu_session_<port>`. The token is therefore not left in
    the address bar, the history or a `Referer` header. A bad token is a `401` and
    sets nothing.
 3. **Every `/api` route needs it**, the live stream included: the cookie, or an
@@ -250,6 +250,23 @@ the way a local server that may one day approve things should be:
    cookie must also carry an `Origin`. The tests put a `POST`/`PUT`/`PATCH`/`DELETE`
    route behind the same chain, so a future write endpoint inherits checks that are
    already proven.
+
+**What the cookie does not isolate.** Browsers scope cookies by host, not by port.
+That has two consequences, stated here because they are true:
+
+- The cookie name carries the port, so two dashboards on `127.0.0.1` (one per
+  cluster context, say) keep separate sessions instead of overwriting each other.
+- The browser still sends every `127.0.0.1` cookie to every `127.0.0.1` port. If
+  you visit some *other* local server in the same browser, it receives this
+  dashboard's session cookie and with it the token. `HttpOnly` keeps script from
+  reading it and `SameSite=Strict` keeps other sites from using it, but neither
+  stops a different server on the same host from being sent it. The token is random,
+  per run and unguessable, and dies when the dashboard stops, so the exposure is
+  limited to a hostile or careless server already running on your machine that you
+  choose to browse to. That is accepted for a localhost tool. Stop the dashboard
+  when you are done, and do not browse untrusted local servers in the same browser
+  profile while it runs. The `Authorization: Bearer` path used by scripts has no
+  such exposure, because nothing attaches it automatically.
 
 A non-loopback `--host` still needs `--allow-host`, and prints a loud warning: the
 token then crosses the network in clear text over HTTP and is the only thing

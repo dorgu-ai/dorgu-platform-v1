@@ -23,6 +23,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -51,18 +52,54 @@ import (
 //     header for a non-browser client such as curl. Nothing else is accepted on
 //     /api, in particular not a query parameter, which would end up in logs.
 //
+// # What the cookie does and does not isolate
+//
+// Browsers scope cookies by host, not by port. Two consequences, both of which
+// follow from that rule and neither of which this server can switch off:
+//
+//   - Two dashboards on 127.0.0.1 (say, one per cluster context) share a cookie
+//     jar. With one fixed cookie name the second would overwrite the first's
+//     session and the first tab would start answering 401. So the name carries
+//     the port: dorgu_session_41873 and dorgu_session_43001 sit side by side and
+//     each server reads only its own. The port is the one the browser used, taken
+//     from the Host header, which is the bound port for a direct connection and
+//     the forwarded port behind an SSH tunnel.
+//   - The browser attaches every cookie for 127.0.0.1 to every request to
+//     127.0.0.1 on any port. Another local server that the user visits in the
+//     same browser, on a different port, therefore receives this cookie, and with
+//     it the token. HttpOnly keeps script from reading it and SameSite=Strict keeps
+//     other sites from triggering requests with it, but neither stops a different
+//     origin on the same host from being sent it. The token is random, per run and
+//     unguessable, and dies with the process; the exposure is to a hostile or
+//     careless server already running on this machine that the user chooses to
+//     browse to. That is an accepted limit for a localhost tool and is stated here
+//     and in the README rather than hidden. The bearer-header path has no such
+//     exposure, because nothing attaches it automatically.
+//
 // The embedded SPA and /healthz are served without it: the SPA is the same
 // public bundle in every binary and holds no cluster data, and a probe has to
 // be able to ask whether the process is up.
 
 const (
-	// SessionCookieName is the cookie the token is exchanged for.
-	SessionCookieName = "dorgu_session"
+	// SessionCookiePrefix starts the name of the cookie the token is exchanged
+	// for. The full name carries the port the browser used; see SessionCookieName.
+	SessionCookiePrefix = "dorgu_session"
 	// TokenQueryParam is the one query parameter the exchange reads.
 	TokenQueryParam = "token"
 
 	tokenBytes = 32
 )
+
+// SessionCookieName is the cookie name for a request addressed to host: the
+// prefix plus the port, so that dashboards on different ports of one host keep
+// separate sessions. A Host with no usable numeric port gets the bare prefix.
+func SessionCookieName(host string) string {
+	_, port, err := net.SplitHostPort(host)
+	if err != nil || port == "" || strings.Trim(port, "0123456789") != "" {
+		return SessionCookiePrefix
+	}
+	return SessionCookiePrefix + "_" + port
+}
 
 // NewToken returns a fresh random session token: 256 bits, URL-safe.
 func NewToken() (string, error) {
@@ -133,7 +170,7 @@ func requireSession(token string, next http.Handler) http.Handler {
 
 		viaCookie := false
 		authenticated := false
-		if c, err := r.Cookie(SessionCookieName); err == nil && tokenMatches(want, c.Value) {
+		if c, err := r.Cookie(SessionCookieName(r.Host)); err == nil && tokenMatches(want, c.Value) {
 			authenticated, viaCookie = true, true
 		}
 		if !authenticated {
@@ -166,7 +203,7 @@ func exchangeToken(w http.ResponseWriter, r *http.Request, want [sha256.Size]byt
 	}
 
 	http.SetCookie(w, &http.Cookie{
-		Name:  SessionCookieName,
+		Name:  SessionCookieName(r.Host),
 		Value: token,
 		Path:  "/",
 		// HttpOnly keeps the token away from script, so an XSS in the SPA

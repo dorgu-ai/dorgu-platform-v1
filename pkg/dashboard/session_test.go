@@ -42,15 +42,20 @@ import (
 // OnReady was given, which is exactly what the CLI opens in a browser.
 func startServed(t *testing.T) string {
 	t.Helper()
+	return startServedWithToken(t, testToken)
+}
+
+func startServedWithToken(t *testing.T, token string) string {
+	t.Helper()
 	ready := make(chan string, 1)
 	opts := Options{Host: "127.0.0.1", Port: 0, OnReady: func(u string) { ready <- u }}.withDefaults()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	handler, err := testHandler()
+	handler, err := testHandlerWithToken(token)
 	require.NoError(t, err)
-	go func() { _ = serve(ctx, opts, handler, testToken, quietLogger()) }()
+	go func() { _ = serve(ctx, opts, handler, token, quietLogger()) }()
 
 	select {
 	case u := <-ready:
@@ -86,7 +91,7 @@ func TestOpeningThePrintedURLEstablishesASessionAndStripsTheToken(t *testing.T) 
 	require.NoError(t, err)
 	cookies := jar.Cookies(base)
 	require.Len(t, cookies, 1)
-	assert.Equal(t, "dorgu_session", cookies[0].Name)
+	assert.Equal(t, "dorgu_session_"+base.Port(), cookies[0].Name, "the cookie name carries the bound port")
 
 	api, err := client.Get(base.Scheme + "://" + base.Host + "/api/v1/meta")
 	require.NoError(t, err)
@@ -95,6 +100,72 @@ func TestOpeningThePrintedURLEstablishesASessionAndStripsTheToken(t *testing.T) 
 	var meta map[string]any
 	require.NoError(t, json.NewDecoder(api.Body).Decode(&meta))
 	assert.Contains(t, meta, "identity")
+}
+
+// Browsers scope cookies by host and ignore the port, so two dashboards on
+// 127.0.0.1 (one per cluster context, say) share one cookie jar. net/http's
+// cookiejar follows the same rule, which makes it a faithful stand-in: with a
+// fixed cookie name the second exchange overwrote the first session and the first
+// tab began to answer 401.
+func TestTwoDashboardsOnDifferentPortsKeepSeparateSessions(t *testing.T) {
+	firstURL := startServedWithToken(t, "token-for-the-first-dashboard")
+	secondURL := startServedWithToken(t, "token-for-the-second-dashboard")
+	first, err := url.Parse(firstURL)
+	require.NoError(t, err)
+	second, err := url.Parse(secondURL)
+	require.NoError(t, err)
+	require.NotEqual(t, first.Port(), second.Port())
+
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+	client := &http.Client{Jar: jar}
+
+	for _, printed := range []string{firstURL, secondURL} {
+		resp, err := client.Get(printed)
+		require.NoError(t, err)
+		resp.Body.Close()
+	}
+
+	for _, base := range []*url.URL{first, second} {
+		resp, err := client.Get(base.Scheme + "://" + base.Host + "/api/v1/meta")
+		require.NoError(t, err)
+		resp.Body.Close()
+		assert.Equal(t, http.StatusOK, resp.StatusCode,
+			"the session for %s must survive the other dashboard's exchange", base.Host)
+	}
+
+	names := map[string]bool{}
+	for _, c := range jar.Cookies(first) {
+		names[c.Name] = true
+	}
+	assert.True(t, names["dorgu_session_"+first.Port()])
+	assert.True(t, names["dorgu_session_"+second.Port()])
+}
+
+// The other side of the same coin: the cookie jar sends both cookies to both
+// servers, and each must accept only the one that is its own, with its own token.
+func TestADashboardIgnoresTheSessionCookieOfADashboardOnAnotherPort(t *testing.T) {
+	firstURL := startServedWithToken(t, "token-for-the-first-dashboard")
+	secondURL := startServedWithToken(t, "token-for-the-second-dashboard")
+	first, err := url.Parse(firstURL)
+	require.NoError(t, err)
+	second, err := url.Parse(secondURL)
+	require.NoError(t, err)
+
+	// Authenticated against the first only.
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+	client := &http.Client{Jar: jar}
+	resp, err := client.Get(firstURL)
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	resp, err = client.Get(second.Scheme + "://" + second.Host + "/api/v1/meta")
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode,
+		"holding the first dashboard's cookie must not open the second")
+	_ = first
 }
 
 func TestTheAPIOverARealSocketRefusesACallerWithNoSession(t *testing.T) {

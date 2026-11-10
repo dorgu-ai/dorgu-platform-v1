@@ -30,6 +30,12 @@ import (
 const testToken = "test-session-token"
 
 func testHandler() (http.Handler, error) {
+	return testHandlerWithToken(testToken)
+}
+
+// testHandlerWithToken is testHandler with a caller-chosen session token, for
+// tests that run two dashboards at once.
+func testHandlerWithToken(token string) (http.Handler, error) {
 	cache := store.New(nil)
 	server, err := httpapi.New(httpapi.Config{
 		Store:     cache,
@@ -37,7 +43,7 @@ func testHandler() (http.Handler, error) {
 		Broker:    sse.NewBroker(),
 		Logger:    quietLogger(),
 		Version:   "test",
-		Token:     testToken,
+		Token:     token,
 	})
 	if err != nil {
 		return nil, err
