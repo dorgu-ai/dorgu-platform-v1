@@ -315,6 +315,18 @@ type Incident struct {
 	// is recorded, nothing was applied, and the incident is still open.
 	Resolution *IncidentResolution `json:"resolution,omitempty"`
 
+	// Proposal is what the gate did with this incident's diagnosis: refused,
+	// deferred, proposed or cleared. Absent before the gate has ruled on it.
+	// Deferred and refused are different things and are never merged.
+	Proposal *IncidentProposal `json:"proposal,omitempty"`
+	// RefusalRecord is the durable record that the gate refused a proposal at
+	// some point. Unlike Proposal it survives the incident resolving.
+	RefusalRecord *IncidentRefusalRecord `json:"refusalRecord,omitempty"`
+	// Lineage is the recurrence history of this fault (-rN names).
+	Lineage IncidentLineage `json:"lineage"`
+	// Signals is the signal family and escalation trail.
+	Signals IncidentSignals `json:"signals"`
+
 	FirstSeen       metav1.Time  `json:"firstSeen"`
 	LastSeen        metav1.Time  `json:"lastSeen"`
 	OccurrenceCount int32        `json:"occurrenceCount"`
