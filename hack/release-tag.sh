@@ -45,6 +45,6 @@ git archive "$tag" internal/webui | tar -x -C "$check"
 asset_count="$(find "$check/internal/webui/dist" -type f | wc -l | tr -d ' ')"
 
 echo
-echo "Tagged $tag at $(git rev-parse --short "$tag") (parent $(git rev-parse --short "$origin_head")), with $asset_count embedded files."
+echo "Tagged $tag at $(git rev-parse --short "$tag^{commit}") (parent $(git rev-parse --short "$origin_head")), with $asset_count embedded files."
 echo "main is unchanged. To publish:"
 echo "  git push origin refs/tags/$tag"
