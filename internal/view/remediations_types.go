@@ -58,6 +58,7 @@ import (
 const (
 	RemediationPending      = "Pending"
 	RemediationApproved     = "Approved"
+	RemediationTicketed     = "Ticketed"
 	RemediationApplying     = "Applying"
 	RemediationVerifying    = "Verifying"
 	RemediationCompleted    = "Completed"
@@ -228,6 +229,24 @@ type Remediation struct {
 	AppliedAt          *metav1.Time `json:"appliedAt,omitempty"`
 	VerificationResult string       `json:"verificationResult,omitempty"`
 
+	// AdvisoryOnly reports that Dorgu will change nothing for this plan: the
+	// workload is owned (or unobserved, which is treated as owned), so every step
+	// is advice and approving records the decision as Acknowledged. Resolved from
+	// the owner the operator's gate recorded when there is one.
+	AdvisoryOnly bool `json:"advisoryOnly"`
+
+	// Gate is what the operator's gate established, absent on a plan the gate
+	// never wrote (an older operator, or an object created by hand).
+	Gate *RemediationGate `json:"gate,omitempty"`
+	// Ticket is the apply ticket, absent until an approval passes the re-check.
+	Ticket *RemediationTicket `json:"ticket,omitempty"`
+	// Expired says why the plan expired: ApprovalTimedOut, Superseded,
+	// PredatesGate or IncidentResolved. Present only while the phase is Expired.
+	Expired *RemediationReason `json:"expired,omitempty"`
+	// GateRefusal is the guardrail that refused the plan when a human approved
+	// it. Nothing was applied.
+	GateRefusal *RemediationReason `json:"gateRefusal,omitempty"`
+
 	// Conditions are passed through so a reader can see what the operator and
 	// the CLI have each recorded, including the CLI's WorkloadPatched marker.
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
@@ -264,6 +283,10 @@ type RemediationWorkload struct {
 	// permits patching the Deployment.
 	ManagedBy       string `json:"managedBy"`
 	ManagedByDetail string `json:"managedByDetail,omitempty"`
+	// OwnershipSource is "gate" when ManagedBy is what the operator's gate
+	// resolved from the live Deployment, and "spec" when it is only what the
+	// plan's author wrote in spec.workloadRef. The first is authoritative.
+	OwnershipSource string `json:"ownershipSource"`
 	// Owned is ManagedBy being anything other than "unmanaged". A workload the
 	// operator could not observe is owned, because no observation is not
 	// evidence that patching is safe.

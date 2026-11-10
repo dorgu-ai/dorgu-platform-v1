@@ -130,6 +130,10 @@ func projectIncident(incident *dorguv1.IncidentMemory, personaExists map[string]
 			Exists:    personaExists[spec.PersonaRef.Namespace+"/"+spec.PersonaRef.Name],
 		},
 		AffectedResources: spec.Detection.AffectedResources,
+		Proposal:          projectProposal(incident.Status.Conditions),
+		RefusalRecord:     projectRefusalRecord(incident.Status.Conditions),
+		Lineage:           projectLineage(incident),
+		Signals:           projectSignals(incident),
 	}
 
 	if rc := spec.RootCause; rc != nil {

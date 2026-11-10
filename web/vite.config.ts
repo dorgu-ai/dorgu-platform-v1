@@ -67,13 +67,20 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    // `npm run dev` talks to a dashboard started separately on its default
-    // port, so the SPA can be hot-reloaded against a real cluster without
-    // rebuilding the Go binary each time.
+    // `npm run dev` talks to a dashboard started separately, so the SPA can be
+    // hot-reloaded against a real cluster without rebuilding the Go binary each
+    // time. The dashboard picks a random port and a random session token, so
+    // start it with `dorgu-dashboard --port 7171 --no-browser` ... and pass the
+    // token it prints: DORGU_DASHBOARD_TOKEN=<token> npm run dev. The proxy adds
+    // it as a bearer header, because the cookie exchange happens on the
+    // dashboard's own origin and not on this one.
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:7171',
+        target: `http://127.0.0.1:${process.env.DORGU_DASHBOARD_PORT ?? '7171'}`,
         changeOrigin: false,
+        headers: process.env.DORGU_DASHBOARD_TOKEN
+          ? { Authorization: `Bearer ${process.env.DORGU_DASHBOARD_TOKEN}` }
+          : {},
       },
     },
   },

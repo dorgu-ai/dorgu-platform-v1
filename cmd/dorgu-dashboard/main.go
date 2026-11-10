@@ -50,8 +50,8 @@ func run() error {
 		kubeconfig    = flag.String("kubeconfig", "", "path to kubeconfig (default: $KUBECONFIG, then ~/.kube/config)")
 		kubeContext   = flag.String("context", "", "kubeconfig context to use (default: the current context)")
 		namespace     = flag.String("namespace", "", "limit every view to one namespace (default: all namespaces)")
-		host          = flag.String("host", dashboard.DefaultHost, "bind address; anything other than loopback exposes an unauthenticated view of your cluster")
-		port          = flag.Int("port", dashboard.DefaultPort, "bind port; 0 asks the kernel for a free one")
+		host          = flag.String("host", dashboard.DefaultHost, "bind address; anything other than loopback puts your cluster on the network behind only the session token")
+		port          = flag.Int("port", dashboard.DefaultPort, "bind port; 0, the default, picks a free one")
 		allowHost     = flag.String("allow-host", "", "comma-separated Host header allowlist, required when --host is not loopback")
 		incidentLimit = flag.Int("incident-limit", 0, "cap the incident feed; 0 uses the default, -1 means no cap")
 		planLimit     = flag.Int("remediation-limit", 0, "cap the remediation list; 0 uses the default, -1 means no cap")
@@ -93,6 +93,7 @@ func run() error {
 			// stdout, not the logger: this is the one line a person is waiting
 			// for, and it should survive --log-level=error and be pipeable.
 			fmt.Printf("Dorgu dashboard: %s\n", url)
+			fmt.Println("The link carries a one-time-per-run session token; keep it to yourself.")
 			fmt.Println("Reading your cluster with your kubeconfig. Press Ctrl-C to stop.")
 		},
 	})
@@ -106,8 +107,10 @@ func usage() {
 	out := flag.CommandLine.Output()
 	fmt.Fprint(out, `dorgu-dashboard serves a local, read-only view of what Dorgu sees in your cluster.
 
-It uses your kubeconfig, holds no credentials, needs no permissions of its own,
-and binds to localhost. It can do exactly what you can do and nothing more.
+It uses your kubeconfig, holds no Kubernetes credentials, needs no permissions of
+its own, binds to localhost on a random port, and requires a per-run session
+token that is in the link it prints. It can do exactly what you can do and
+nothing more.
 
 Usage:
   dorgu-dashboard [flags]
@@ -119,7 +122,7 @@ Flags:
 Examples:
   dorgu-dashboard
   dorgu-dashboard --namespace apps
-  dorgu-dashboard --context staging --port 0
+  dorgu-dashboard --context staging --port 8080
 `)
 }
 

@@ -37,6 +37,15 @@ async function get<T>(path: string): Promise<T> {
     throw new ApiError(0, path, 'The dashboard server is not responding. Is it still running?')
   }
 
+  if (response.status === 401) {
+    // The session cookie is missing or the dashboard was restarted, which
+    // issues a new token. The fix is the link the dashboard printed.
+    throw new ApiError(
+      401,
+      path,
+      'This session is not authorised. Open the link that `dorgu dashboard` printed in your terminal; it carries a new token each time the dashboard starts.',
+    )
+  }
   if (!response.ok) {
     const body = await response.text().catch(() => '')
     throw new ApiError(

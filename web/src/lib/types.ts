@@ -231,11 +231,59 @@ export interface Incident {
   rootCause?: IncidentRootCause
   affectedResources?: ResourceReference[]
   resolution?: IncidentResolution
+  proposal?: IncidentProposal
+  refusalRecord?: IncidentRefusalRecord
+  lineage: IncidentLineage
+  signals: IncidentSignals
   firstSeen: string
   lastSeen: string
   occurrenceCount: number
   lastOccurrence?: string
   createdAt: string
+}
+
+/** What the gate did with an incident's diagnosis. Deferred is not refused. */
+export type ProposalState = 'refused' | 'deferred' | 'proposed' | 'cleared'
+
+export interface IncidentProposal {
+  state: ProposalState
+  /** The condition's CamelCase enum; a refusal is "<Stage>_<Reason>". */
+  reason: string
+  stage?: string
+  guardrail?: string
+  message?: string
+  since: string
+}
+
+/** The durable refusal record; it survives the incident resolving. */
+export interface IncidentRefusalRecord {
+  reason: string
+  stage?: string
+  guardrail?: string
+  message?: string
+  at: string
+}
+
+export interface IncidentLineage {
+  /** The incident name without its -rN suffix. */
+  key: string
+  /** 0 for the first occurrence, N for the Nth recurrence. */
+  generation: number
+  recurrenceOf?: string
+  priorIncidents?: number
+  flapping: boolean
+  recurrencesFolded?: number
+}
+
+export interface IncidentSignals {
+  /** The signal family, mildest first. Empty when the signal is not in one. */
+  family?: string[]
+  /** 1-based position of the current signal in the family; 0 or absent when outside it. */
+  rank?: number
+  escalatedFrom?: string[]
+  escalatedAt?: string
+  containers?: string[]
+  lastResolution?: string
 }
 
 export interface IncidentsSummary {
@@ -262,6 +310,7 @@ export interface IncidentsPayload {
 export type RemediationPhase =
   | 'Pending'
   | 'Approved'
+  | 'Ticketed'
   | 'Applying'
   | 'Verifying'
   | 'Completed'
@@ -375,6 +424,8 @@ export interface RemediationWorkload {
   container?: string
   managedBy: ManagedBy
   managedByDetail?: string
+  /** "gate" when the operator resolved it from the live Deployment, "spec" when it is only what the plan's author wrote. */
+  ownershipSource: 'gate' | 'spec'
   owned: boolean
   ownerName?: string
   whyNotPatched?: string
@@ -383,6 +434,40 @@ export interface RemediationWorkload {
   observedImage?: string
   observedResources?: ObservedResources
   observedAt?: string
+}
+
+/** One guardrail's decision, as the operator's gate recorded it. */
+export interface GateVerdict {
+  /** Validate, Ground, Ownership, Guardrails, ModePolicy or DedupCooldown. */
+  stage: string
+  guardrail: string
+  verdict: 'pass' | 'clamp' | 'refuse'
+  reason?: string
+  /** The verdict's inputs as data (baseline, requested, ratio, ceiling). */
+  numbers?: Record<string, string>
+}
+
+export interface RemediationGate {
+  phase: 'Proposal' | 'ApprovalRecheck'
+  result: 'Pass' | 'Clamp' | 'Refuse'
+  evaluatedAt: string
+  verdicts?: GateVerdict[]
+}
+
+export type TicketState = 'issued' | 'expired' | 'consumed'
+
+export interface RemediationTicket {
+  state: TicketState
+  issuedAt?: string
+  expiresAt: string
+  container?: string
+  verdicts?: GateVerdict[]
+}
+
+/** A condition's machine reason and its sentence. */
+export interface RemediationReason {
+  reason: string
+  message?: string
 }
 
 export interface OwnerInstruction {
@@ -449,6 +534,14 @@ export interface Remediation {
   approvedAt?: string
   appliedAt?: string
   verificationResult?: string
+  /** Dorgu will change nothing for this plan: the workload is owned. */
+  advisoryOnly: boolean
+  gate?: RemediationGate
+  ticket?: RemediationTicket
+  /** Why the plan expired: ApprovalTimedOut, Superseded, PredatesGate or IncidentResolved. */
+  expired?: RemediationReason
+  /** The guardrail that refused the plan when a human approved it. */
+  gateRefusal?: RemediationReason
   conditions?: Condition[]
   createdAt: string
 }
@@ -629,9 +722,20 @@ export interface ViewStatus {
   limitation?: string
 }
 
+/** Who the cluster says this kubeconfig authenticates as (SelfSubjectReview). */
+export interface Identity {
+  available: boolean
+  username?: string
+  uid?: string
+  groups?: string[]
+  /** Why it is not available, e.g. a cluster older than Kubernetes 1.28. */
+  reason?: string
+}
+
 export interface Meta {
   version: string
   cluster: ClusterInfo
+  identity: Identity
   crds: Record<string, boolean>
   missingCRDs?: string[]
   operatorInstalled: boolean

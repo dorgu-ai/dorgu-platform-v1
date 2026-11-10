@@ -40,6 +40,9 @@ import (
 	"github.com/dorgu-ai/dorgu-platform-v1/internal/view"
 )
 
+// testToken is the session token every harness server is built with.
+const testToken = "test-session-token"
+
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
@@ -65,6 +68,7 @@ func newHarness(t *testing.T, assets fs.FS, opts ...func(*Config)) *harness {
 		Assets:    assets,
 		Cluster:   ClusterInfo{Context: "dorgu-dev", Server: "https://example.eks.amazonaws.com"},
 		Version:   "test",
+		Token:     testToken,
 	}
 	for _, o := range opts {
 		o(&cfg)
@@ -90,6 +94,7 @@ func (h *harness) ready() {
 func (h *harness) get(t *testing.T, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "http://localhost:7171"+path, nil)
+	req.Header.Set("Authorization", "Bearer "+testToken)
 	rec := httptest.NewRecorder()
 	h.server.Handler().ServeHTTP(rec, req)
 	return rec
@@ -106,6 +111,7 @@ func TestNewRejectsAnIncompleteConfig(t *testing.T) {
 		Snapshots: NewSnapshots(cache, SnapshotOptions{}),
 		Broker:    sse.NewBroker(),
 		Logger:    discardLogger(),
+		Token:     testToken,
 	}
 
 	tests := map[string]func(*Config){
@@ -113,6 +119,7 @@ func TestNewRejectsAnIncompleteConfig(t *testing.T) {
 		"Snapshots": func(c *Config) { c.Snapshots = nil },
 		"Broker":    func(c *Config) { c.Broker = nil },
 		"Logger":    func(c *Config) { c.Logger = nil },
+		"Token":     func(c *Config) { c.Token = "" },
 	}
 	for field, drop := range tests {
 		t.Run("missing "+field, func(t *testing.T) {
@@ -287,6 +294,7 @@ func TestUnknownAPIPathIsNotSwallowedByTheSPAFallback(t *testing.T) {
 func TestNonGETMethodsAreRejected(t *testing.T) {
 	h := newHarness(t, nil)
 	req := httptest.NewRequest(http.MethodPost, "http://localhost:7171/api/v1/apps", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken)
 	rec := httptest.NewRecorder()
 	h.server.Handler().ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code,

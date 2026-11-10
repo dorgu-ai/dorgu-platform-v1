@@ -27,7 +27,15 @@ import (
 // testHandler builds the same handler Run serves, with an empty cache and no
 // cluster behind it. Wiring the real thing is the point: it is how these tests
 // catch a middleware that exists but was never mounted.
+const testToken = "test-session-token"
+
 func testHandler() (http.Handler, error) {
+	return testHandlerWithToken(testToken)
+}
+
+// testHandlerWithToken is testHandler with a caller-chosen session token, for
+// tests that run two dashboards at once.
+func testHandlerWithToken(token string) (http.Handler, error) {
 	cache := store.New(nil)
 	server, err := httpapi.New(httpapi.Config{
 		Store:     cache,
@@ -35,6 +43,7 @@ func testHandler() (http.Handler, error) {
 		Broker:    sse.NewBroker(),
 		Logger:    quietLogger(),
 		Version:   "test",
+		Token:     token,
 	})
 	if err != nil {
 		return nil, err

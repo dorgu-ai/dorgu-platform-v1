@@ -19,6 +19,7 @@ package view
 import (
 	"sort"
 	"strings"
+	"time"
 
 	dorguv1 "github.com/dorgu-ai/dorgu-operator/api/v1"
 )
@@ -40,6 +41,10 @@ type RemediationsInput struct {
 	Limit int
 
 	Readiness Readiness
+
+	// Now is the clock the apply ticket's expiry is judged against. Zero means
+	// time.Now(); tests set it.
+	Now time.Time
 }
 
 // BuildRemediations projects RemediationActions into the Remediations view.
@@ -52,6 +57,10 @@ type RemediationsInput struct {
 func BuildRemediations(in RemediationsInput) RemediationsPayload {
 	personaExists := personaNameSet(in.Personas)
 	incidentExists := incidentNameSet(in.Incidents)
+	now := in.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
 
 	rows := make([]Remediation, 0, len(in.Remediations))
 	for _, action := range in.Remediations {
@@ -61,7 +70,7 @@ func BuildRemediations(in RemediationsInput) RemediationsPayload {
 		if in.Namespace != "" && action.Namespace != in.Namespace {
 			continue
 		}
-		rows = append(rows, projectRemediation(action, personaExists, incidentExists))
+		rows = append(rows, projectRemediation(action, personaExists, incidentExists, now))
 	}
 
 	sortRemediations(rows)
@@ -88,9 +97,10 @@ func BuildRemediations(in RemediationsInput) RemediationsPayload {
 func projectRemediation(
 	action *dorguv1.RemediationAction,
 	personaExists, incidentExists map[string]bool,
+	now time.Time,
 ) Remediation {
 	spec := action.Spec
-	workload := spec.WorkloadRef
+	workload, ownershipSource := authoritativeWorkloadRef(action)
 	owned := workload.IsOwned()
 
 	steps, intent := projectSteps(action, owned)
@@ -120,7 +130,12 @@ func projectRemediation(
 			Exists:    personaExists[spec.PersonaRef.Namespace+"/"+spec.PersonaRef.Name],
 		},
 
-		Workload:        projectRemediationWorkload(workload),
+		Workload:        projectRemediationWorkload(workload, ownershipSource),
+		AdvisoryOnly:    owned,
+		Gate:            projectGate(action.Status),
+		Ticket:          projectTicket(action.Status, now),
+		Expired:         expiredReason(action),
+		GateRefusal:     gateRefusal(action),
 		Steps:           steps,
 		WorkloadChanges: diffWorkloadResources(workload, intent),
 
@@ -263,7 +278,7 @@ func stepMode(autoExecutable bool) string {
 
 // projectRemediationWorkload renders the live workload and what its ownership
 // means, or nil when the plan records no workload at all.
-func projectRemediationWorkload(workload *dorguv1.WorkloadRef) *RemediationWorkload {
+func projectRemediationWorkload(workload *dorguv1.WorkloadRef, ownershipSource string) *RemediationWorkload {
 	if workload == nil {
 		return nil
 	}
@@ -275,6 +290,7 @@ func projectRemediationWorkload(workload *dorguv1.WorkloadRef) *RemediationWorkl
 		Container:       workload.Container,
 		ManagedBy:       workload.ManagedBy,
 		ManagedByDetail: workload.ManagedByDetail,
+		OwnershipSource: ownershipSource,
 		Owned:           workload.IsOwned(),
 		Observed:        workloadObserved(workload),
 		ObservedImage:   workload.ObservedImage,

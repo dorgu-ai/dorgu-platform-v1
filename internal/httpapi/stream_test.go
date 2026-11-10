@@ -99,6 +99,7 @@ func openStream(t *testing.T, h *harness) (*streamReader, func()) {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/v1/stream", nil)
 	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+testToken)
 
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
@@ -247,6 +248,7 @@ func TestHeartbeatKeepsAnIdleStreamAlive(t *testing.T) {
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/v1/stream", nil)
 	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -275,6 +277,7 @@ func TestStreamAnnouncesItsReconnectInterval(t *testing.T) {
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/v1/stream", nil)
 	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()

@@ -6,6 +6,7 @@ import { useMemo } from 'react'
 import { SummaryBar } from '@/components/app-shell'
 import { DataTable, type ColumnMeta } from '@/components/data-table'
 import { ViewEmptyState } from '@/components/empty-state'
+import { LineageLine, ProposalCell } from '@/components/gate-panels'
 import { SeverityBadge, UnattributedBadge } from '@/components/status'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip } from '@/components/ui/tooltip'
@@ -24,6 +25,9 @@ function incidentVersion(incident: Incident): string {
     incident.occurrenceCount,
     incident.rootCause?.summary ?? '',
     incident.resolution?.outcome ?? '',
+    incident.proposal?.state ?? '',
+    incident.proposal?.reason ?? '',
+    incident.lineage.generation,
   ].join('|')
 }
 
@@ -61,6 +65,13 @@ const columns = [
     header: 'Confidence',
     meta: { width: '8.5rem' } satisfies ColumnMeta,
     cell: ({ row }) => <ConfidenceCell incident={row.original} />,
+  }),
+
+  column.accessor((incident) => incident.proposal?.state ?? '', {
+    id: 'proposal',
+    header: 'Proposal',
+    meta: { width: 'minmax(9rem, 0.8fr)' } satisfies ColumnMeta,
+    cell: ({ row }) => <ProposalCell incident={row.original} />,
   }),
 
   column.accessor('phase', {
@@ -161,6 +172,7 @@ function SignalCell({ incident }: { incident: Incident }) {
       <Tooltip content={`Detected by ${incident.source}. Category: ${incident.category}.`}>
         <div className="cursor-default truncate text-[11px] text-ink-faint">{incident.source}</div>
       </Tooltip>
+      <LineageLine incident={incident} />
     </div>
   )
 }

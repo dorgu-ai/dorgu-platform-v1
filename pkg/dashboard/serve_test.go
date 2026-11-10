@@ -54,7 +54,7 @@ func TestServeReportsTheActualPortWhenAskedForAFreeOne(t *testing.T) {
 	defer cancel()
 
 	errs := make(chan error, 1)
-	go func() { errs <- serve(ctx, opts, pingHandler(), quietLogger()) }()
+	go func() { errs <- serve(ctx, opts, pingHandler(), "tok", quietLogger()) }()
 
 	var url string
 	select {
@@ -67,6 +67,8 @@ func TestServeReportsTheActualPortWhenAskedForAFreeOne(t *testing.T) {
 
 	assert.True(t, strings.HasPrefix(url, "http://127.0.0.1:"), "got %q", url)
 	assert.False(t, strings.HasSuffix(url, ":0/"), "the reported port must be the bound one")
+
+	assert.True(t, strings.HasSuffix(url, "/?token=tok"), "the URL handed out carries the session token, got %q", url)
 
 	resp, err := http.Get(url)
 	require.NoError(t, err)
@@ -99,7 +101,7 @@ func TestServeNamesTheAddressItCouldNotBind(t *testing.T) {
 		OnReady: func(string) { called = true },
 	}.withDefaults()
 
-	err = serve(context.Background(), opts, pingHandler(), quietLogger())
+	err = serve(context.Background(), opts, pingHandler(), "tok", quietLogger())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot listen on 127.0.0.1:")
 	assert.False(t, called, "OnReady must not fire for a bind that failed")
@@ -110,7 +112,7 @@ func TestServeStopsWhenTheContextIsAlreadyCancelled(t *testing.T) {
 	cancel()
 
 	opts := Options{Host: "127.0.0.1", Port: 0}.withDefaults()
-	assert.NoError(t, serve(ctx, opts, pingHandler(), quietLogger()))
+	assert.NoError(t, serve(ctx, opts, pingHandler(), "tok", quietLogger()))
 }
 
 // The Host guard lives in the HTTP layer, and this asserts it is actually
@@ -124,7 +126,7 @@ func TestServedHandlerRejectsAForeignHostHeader(t *testing.T) {
 
 	handler, err := testHandler()
 	require.NoError(t, err)
-	go func() { _ = serve(ctx, opts, handler, quietLogger()) }()
+	go func() { _ = serve(ctx, opts, handler, testToken, quietLogger()) }()
 
 	url := <-ready
 	req, err := http.NewRequest(http.MethodGet, url+"api/v1/meta", nil)

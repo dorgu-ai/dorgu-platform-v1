@@ -112,6 +112,11 @@ check: fmt-check vet test-race web-typecheck web-lint ## Everything CI runs
 
 ##@ Packaging
 
+.PHONY: release-tag
+release-tag: ## Tag a commit that carries the built SPA, for go module consumers (TAG=v0.1.0)
+	@test -n "$(TAG)" || { echo "usage: make release-tag TAG=vX.Y.Z"; exit 1; }
+	./hack/release-tag.sh "$(TAG)"
+
 .PHONY: docker
 docker: ## Build the container image
 	docker build -t dorgu-dashboard:$(VERSION) .

@@ -26,23 +26,26 @@ import (
 
 // Defaults for Options. Every one of them is a decision, not a placeholder.
 const (
-	// DefaultHost is loopback. The dashboard has no authentication, by the
-	// Aug 22 decision, and the reason that decision is defensible is that
-	// nothing outside the machine can reach it. Changing this is changing the
-	// security model, which is why Options.Host says so and Validate warns.
+	// DefaultHost is loopback. Nothing outside the machine can reach it, and
+	// the session token (see Options.Token) is what separates the person who
+	// started the dashboard from any other local process or browser tab.
+	// Changing the host is changing the security model, which is why
+	// Options.Host says so and Validate warns.
 	DefaultHost = "127.0.0.1"
 
-	// DefaultPort is a fixed high port so the URL is the same every run and can
-	// be bookmarked. Port 0 asks the kernel for a free one, which is what tests
-	// and a second concurrent dashboard want.
-	DefaultPort = 7171
+	// DefaultPort is 0: the kernel picks a free port every run. A fixed port is
+	// one a hostile page can guess and probe for, and two dashboards pointed at
+	// two clusters cannot share one. The URL is printed and opened for you, so
+	// nothing is lost; pass a port to get a stable one.
+	DefaultPort = 0
 
 	// DefaultVersion is reported when no build stamped a version in.
 	DefaultVersion = "dev"
 )
 
 // Options configures a dashboard. The zero value is usable: it reads the
-// caller's default kubeconfig and serves on 127.0.0.1:7171.
+// caller's default kubeconfig and serves on 127.0.0.1 on a random free port,
+// behind a freshly generated session token.
 type Options struct {
 	// Kubeconfig is an explicit kubeconfig path. Empty uses the standard
 	// loading rules, which is $KUBECONFIG if set and ~/.kube/config otherwise.
@@ -55,12 +58,16 @@ type Options struct {
 	// otherwise be refused and the views will stay empty.
 	Namespace string
 
-	// Host is the bind address. Anything other than a loopback address exposes
-	// an unauthenticated view of the cluster to the network.
+	// Host is the bind address. Anything other than a loopback address puts the
+	// dashboard on the network, protected only by the session token.
 	Host string
-	// Port is the bind port. Zero asks the kernel for a free one; read the
-	// actual URL from OnReady.
+	// Port is the bind port. Zero, the default, asks the kernel for a free one;
+	// read the actual URL from OnReady.
 	Port int
+	// Token is the session token every API request must present. Empty, the
+	// default, generates a fresh random one, which is what every caller should
+	// want. Set it only to make a run reproducible in tests.
+	Token string
 	// AllowedHosts overrides the Host header allowlist. Only needed when
 	// binding to a non-loopback address on purpose.
 	AllowedHosts []string
@@ -93,9 +100,11 @@ type Options struct {
 	// above to stderr in text form, which is what a CLI subcommand wants.
 	Logger *slog.Logger
 
-	// OnReady is called once the listener is up, with the URL to open. It is
+	// OnReady is called once the listener is up, with the URL to open. The URL
+	// carries the session token in its query: the first request exchanges it
+	// for a cookie and the server redirects it out of the address bar. It is
 	// how the CLI prints or opens the address without this package deciding to
-	// do either.
+	// do either. It is a secret for the length of the run; do not log it.
 	OnReady func(url string)
 }
 
@@ -124,8 +133,9 @@ func (o Options) withDefaults() Options {
 // Validate reports a configuration that cannot work, and warns about one that
 // works but changes the security posture.
 //
-// The warning is not a formality. A dashboard on 0.0.0.0 with no auth hands
-// every reader on the network a live view of the cluster, and the person who
+// The warning is not a formality. A dashboard on 0.0.0.0 puts a live view of
+// the cluster, read with the caller's own credentials, on the network behind
+// nothing but a token that travels in clear text over HTTP, and the person who
 // typed --host deserves to be told that in words rather than discover it.
 func (o Options) Validate(logger *slog.Logger) error {
 	if o.Port < 0 || o.Port > 65535 {
@@ -141,10 +151,11 @@ func (o Options) Validate(logger *slog.Logger) error {
 	}
 
 	if logger != nil {
-		logger.Warn("binding to a non-loopback address exposes an unauthenticated view of your cluster",
+		logger.Warn("WARNING: binding to a non-loopback address exposes your cluster to the network",
 			"host", host,
-			"detail", "the dashboard has no authentication by design; loopback is what keeps that safe",
-			"hint", "drop --host to bind 127.0.0.1, or put an authenticating proxy in front of this")
+			"detail", "anyone who can reach this port and obtains the session token reads your cluster "+
+				"with your kubeconfig's permissions, and the token travels in clear text over plain HTTP",
+			"hint", "drop --host to bind 127.0.0.1, or put a TLS-terminating proxy in front of this")
 	}
 	if len(o.AllowedHosts) == 0 {
 		return fmt.Errorf(

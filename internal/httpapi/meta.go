@@ -30,6 +30,8 @@ import (
 type Meta struct {
 	Version string      `json:"version"`
 	Cluster ClusterInfo `json:"cluster"`
+	// Identity is who the cluster says this kubeconfig authenticates as.
+	Identity IdentityInfo `json:"identity"`
 
 	// CRDs reports each dorgu.io resource and whether the API server serves it.
 	CRDs map[string]bool `json:"crds"`
@@ -51,6 +53,18 @@ type Meta struct {
 	// admission about unenforced trust levels: a reader who can see what is
 	// missing trusts what is present.
 	Views []ViewStatus `json:"views"`
+}
+
+// IdentityInfo is the authenticated identity from a SelfSubjectReview, or the
+// reason there is none. Unavailable is a normal state (a cluster older than
+// 1.28, a locked-down one) and the UI says so rather than leaving a blank.
+type IdentityInfo struct {
+	Available bool     `json:"available"`
+	Username  string   `json:"username,omitempty"`
+	UID       string   `json:"uid,omitempty"`
+	Groups    []string `json:"groups,omitempty"`
+	// Reason says why Available is false.
+	Reason string `json:"reason,omitempty"`
 }
 
 // ViewStatus is one view and its state in this build.
@@ -138,6 +152,7 @@ func (s *Server) meta() Meta {
 	return Meta{
 		Version:           s.cfg.Version,
 		Cluster:           s.cfg.Cluster,
+		Identity:          s.cfg.Identity,
 		CRDs:              crds,
 		MissingCRDs:       kube.MissingResources(crds),
 		OperatorInstalled: installed,

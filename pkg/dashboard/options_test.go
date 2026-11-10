@@ -33,6 +33,9 @@ func TestZeroOptionsAreUsable(t *testing.T) {
 	require.NotNil(t, filled.Logger)
 	require.NotNil(t, filled.OnReady)
 	assert.NotPanics(t, func() { filled.OnReady("http://127.0.0.1:7171/") })
+	assert.Equal(t, 0, filled.Port, "the default port is random")
+	assert.Equal(t, 0, DefaultPort)
+	assert.Empty(t, filled.Token, "an empty token is generated at Run, not defaulted here")
 }
 
 // Callers keep their Options and a run must not rewrite them.
@@ -84,7 +87,8 @@ func TestNonLoopbackBindWarnsAndDemandsAnExplicitAllowlist(t *testing.T) {
 	assert.Contains(t, err.Error(), "Host header allowlist must be set explicitly")
 
 	logged := buf.String()
-	assert.Contains(t, logged, "unauthenticated")
+	assert.Contains(t, logged, "WARNING")
+	assert.Contains(t, logged, "clear text")
 	assert.Contains(t, logged, "0.0.0.0")
 }
 
@@ -94,7 +98,7 @@ func TestNonLoopbackBindIsAllowedWithAnExplicitAllowlist(t *testing.T) {
 
 	err := Options{Host: "0.0.0.0", AllowedHosts: []string{"dashboard.internal"}}.Validate(logger)
 	require.NoError(t, err)
-	assert.Contains(t, buf.String(), "unauthenticated",
+	assert.Contains(t, buf.String(), "WARNING",
 		"allowing it does not make it quiet")
 }
 

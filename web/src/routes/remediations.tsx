@@ -17,6 +17,7 @@ import { SummaryBar } from '@/components/app-shell'
 import { CopyCommand } from '@/components/copy-command'
 import { DataTable, type ColumnMeta } from '@/components/data-table'
 import { ViewEmptyState } from '@/components/empty-state'
+import { GatePanel } from '@/components/gate-panels'
 import { ResourceDiff } from '@/components/remediation-diff'
 import { StepSafetyBlock, VerdictBadge } from '@/components/remediation-safety'
 import { Dot, ManagedByBadge } from '@/components/status'
@@ -78,6 +79,7 @@ const ExpansionContext = createContext<Expansion>({
 const phaseTone: Record<string, BadgeTone> = {
   Pending: 'info',
   Approved: 'info',
+  Ticketed: 'info',
   Applying: 'warn',
   Verifying: 'warn',
   Completed: 'ok',
@@ -91,6 +93,7 @@ const phaseTone: Record<string, BadgeTone> = {
 const phaseNote: Record<string, string> = {
   Pending: 'Awaiting a decision. Nothing has been applied.',
   Approved: 'A human approved this. The operator applies the persona change on its next reconcile.',
+  Ticketed: 'Approved, re-checked by the operator’s gate and cleared. An apply ticket was issued and is the only thing that may be applied.',
   Applying: 'The operator is applying the persona change now.',
   Verifying: 'Applied. The operator is checking whether health improved.',
   Completed: 'Applied and verified healthy.',
@@ -99,7 +102,7 @@ const phaseNote: Record<string, string> = {
   RolledBack: 'Applied, health degraded, and the change was reverted.',
   Failed: 'The operator could not apply this. It also trips a cooldown for the app.',
   Rejected: 'A human declined this plan.',
-  Expired: 'The approval deadline passed with no decision.',
+  Expired: 'Terminal and nothing was applied. The reason is shown when the row is expanded.',
 }
 
 const riskTone: Record<string, BadgeTone> = {
@@ -117,6 +120,11 @@ function remediationVersion(row: Remediation): string {
     row.steps.length,
     row.appliedAt ?? '',
     row.verificationResult ?? '',
+    row.ticket?.state ?? '',
+    row.gate?.result ?? '',
+    row.expired?.reason ?? '',
+    row.gateRefusal?.reason ?? '',
+    row.workload?.managedBy ?? '',
   ].join('|')
 }
 
@@ -349,6 +357,9 @@ function PhaseCell({ remediation }: { remediation: Remediation }) {
       {remediation.phase === 'Acknowledged' && (
         <div className="truncate text-[10px] text-warn">nothing was applied</div>
       )}
+      {remediation.expired && (
+        <div className="truncate text-[10px] text-ink-faint">{remediation.expired.reason}</div>
+      )}
       {remediation.verificationResult && (
         <div className="truncate text-[10px] text-ink-faint">
           verified {remediation.verificationResult.toLowerCase()}
@@ -515,6 +526,8 @@ function PlanDetail({ remediation }: { remediation: Remediation }) {
         </ol>
       </div>
 
+      <GatePanel remediation={remediation} />
+
       {workload?.owned && <OwnedWorkloadPanel remediation={remediation} />}
 
       <div className="flex flex-wrap items-center gap-2 pt-0.5">
@@ -674,10 +687,14 @@ function OwnedWorkloadPanel({ remediation }: { remediation: Remediation }) {
     <section className="max-w-3xl rounded-md border border-info/40 bg-info-soft/40 px-2.5 py-2">
       <h4 className="flex items-center gap-1.5 text-[11px] font-semibold text-ink">
         <Dot tone="info" />
-        Dorgu will not patch this Deployment
+        Advisory only: Dorgu will not patch this Deployment
       </h4>
       <p className="mt-1 text-[11px] leading-relaxed text-ink-muted">
-        {workload.ownerName} owns it. {workload.whyNotPatched}
+        {workload.ownerName} owns it. {workload.whyNotPatched} No step of this plan is
+        auto-executable; approving it records the decision and changes nothing in the cluster.
+        {workload.ownershipSource === 'gate'
+          ? ' Ownership is as resolved by the operator from the live Deployment.'
+          : ' Ownership is as written in the plan; the operator’s gate has not recorded one.'}
       </p>
 
       {(remediation.ownerInstructions?.length ?? 0) > 0 && (

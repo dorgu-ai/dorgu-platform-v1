@@ -41,7 +41,8 @@ import (
 // alive on a cluster where nothing is changing, which is the healthy case.
 const DefaultHeartbeat = 25 * time.Second
 
-// Config is everything the server needs. Every field except Assets is required.
+// Config is everything the server needs. Every field except Assets,
+// Cluster, Version, Heartbeat and AllowedHosts is required.
 type Config struct {
 	Store     *store.Store
 	Snapshots *Snapshots
@@ -56,6 +57,9 @@ type Config struct {
 	// Cluster describes what this process is pointed at, so the UI can say
 	// which cluster it is showing.
 	Cluster ClusterInfo
+	// Identity is the authenticated identity shown in the header. The zero
+	// value reads as "not available".
+	Identity IdentityInfo
 	// Version is the dashboard build version, reported by the meta endpoint.
 	Version string
 	// Heartbeat overrides DefaultHeartbeat.
@@ -63,6 +67,10 @@ type Config struct {
 	// AllowedHosts overrides the default localhost-only Host allowlist. Set it
 	// when binding to a non-loopback address on purpose.
 	AllowedHosts []string
+	// Token is the per-session secret every /api request must present, as the
+	// session cookie or an Authorization: Bearer header. Required: there is no
+	// way to run this server unauthenticated. See NewToken.
+	Token string
 }
 
 // ClusterInfo is the connection the dashboard is reading.
@@ -91,6 +99,8 @@ func New(cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("httpapi: Broker is required")
 	case cfg.Logger == nil:
 		return nil, fmt.Errorf("httpapi: Logger is required")
+	case cfg.Token == "":
+		return nil, fmt.Errorf("httpapi: Token is required")
 	}
 
 	heartbeat := cfg.Heartbeat
@@ -99,8 +109,19 @@ func New(cfg Config) (*Server, error) {
 	}
 
 	s := &Server{cfg: cfg, heartbeat: heartbeat}
-	s.handler = guardHost(cfg.AllowedHosts, securityHeaders(s.routes()))
+	s.handler = protect(cfg, s.routes())
 	return s, nil
+}
+
+// protect wraps a route table in every request check, outermost first: Host
+// (DNS rebinding), then Origin (cross-site), then the security headers, then
+// the session token. A request that fails an earlier check never reaches a
+// later one, and every route is behind all of them because they wrap the whole
+// mux rather than being attached per route. It is a function of its own so a
+// test can put a write route behind it and prove nothing reaches it unchecked.
+func protect(cfg Config, routes http.Handler) http.Handler {
+	return guardHost(cfg.AllowedHosts,
+		guardOrigin(securityHeaders(requireSession(cfg.Token, routes))))
 }
 
 // Handler returns the root handler.
