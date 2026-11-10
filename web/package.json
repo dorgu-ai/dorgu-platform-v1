@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
   "description": "Vite + React SPA for the Dorgu dashboard, embedded into the Go binary at build time.",
   "scripts": {
     "dev": "vite",

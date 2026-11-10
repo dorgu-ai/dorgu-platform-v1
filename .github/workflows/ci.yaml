@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A newer push to the same pull request makes the older run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The Node version is pinned in web/.nvmrc (22, which the Dockerfile also
+      # uses) and constrained by "engines" in web/package.json. The npm cache is
+      # keyed on the lockfile.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # gofmt, go vet, go test -race, web typecheck, web lint: the same target a
+      # contributor runs before pushing.
+      - name: make check
+        run: make check
+
+      # The SPA build is what ships inside the binary and, through the release
+      # tag, inside the CLI. A type-clean tree that cannot build would otherwise
+      # only be found at release time.
+      - name: Build the SPA and the binary with it embedded
+        run: make all
+
+      - name: Verify the embedded SPA
+        run: |
+          test -f internal/webui/dist/index.html
+          ./bin/dorgu-dashboard --version
