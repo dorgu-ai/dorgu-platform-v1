@@ -24,17 +24,25 @@ limitations under the License.
 //
 // # The trust posture, in code
 //
-// This package creates no credentials. It loads the caller's kubeconfig, binds
-// loopback by default, and exposes read-only endpoints. It can do exactly what
-// the person running it can do, and nothing more.
+// This package creates no Kubernetes credentials. It loads the caller's
+// kubeconfig, binds loopback on a random port by default, and exposes read-only
+// endpoints. It can do exactly what the person running it can do, and nothing
+// more.
+//
+// It does create one secret of its own: a random per-run session token that
+// every API request must present (see httpapi.NewToken). The token is in the
+// URL handed to OnReady, is exchanged for an HttpOnly SameSite=Strict cookie on
+// first load, and dies with the process.
 package dashboard
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -89,6 +97,15 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
+	identity := resolveIdentity(ctx, clients, logger)
+
+	token := cfg.Token
+	if token == "" {
+		if token, err = httpapi.NewToken(); err != nil {
+			return err
+		}
+	}
+
 	resources, err := kube.DiscoverDorguResources(clients.Discovery)
 	if err != nil {
 		return fmt.Errorf("checking which dorgu.io resources your cluster serves: %w", err)
@@ -137,6 +154,8 @@ func Run(ctx context.Context, opts Options) error {
 			Namespace: cfg.Namespace,
 			InCluster: conn.InCluster,
 		},
+		Identity:     identity,
+		Token:        token,
 		Version:      cfg.Version,
 		Heartbeat:    cfg.Heartbeat,
 		AllowedHosts: cfg.AllowedHosts,
@@ -181,7 +200,7 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("watching your cluster: %w", err)
 	}
 
-	return serve(runCtx, cfg, srv.Handler(), logger)
+	return serve(runCtx, cfg, srv.Handler(), token, logger)
 }
 
 // serve binds the listener and runs the HTTP server until ctx is cancelled.
@@ -189,7 +208,10 @@ func Run(ctx context.Context, opts Options) error {
 // The listener is created before Serve so a port already in use fails with a
 // message naming the address, rather than after the caller has been told the
 // dashboard is starting.
-func serve(ctx context.Context, cfg Options, handler http.Handler, logger logAdapter) error {
+//
+// The token is added to the URL given to OnReady and kept out of the log line:
+// logs get pasted into issues.
+func serve(ctx context.Context, cfg Options, handler http.Handler, token string, logger logAdapter) error {
 	address := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
@@ -205,9 +227,9 @@ func serve(ctx context.Context, cfg Options, handler http.Handler, logger logAda
 		IdleTimeout:       120 * time.Second,
 	}
 
-	url := "http://" + net.JoinHostPort(displayHost(cfg.Host), strconv.Itoa(port(listener))) + "/"
-	logger.Info("dashboard ready", "url", url)
-	cfg.OnReady(url)
+	base := "http://" + net.JoinHostPort(displayHost(cfg.Host), strconv.Itoa(port(listener))) + "/"
+	logger.Info("dashboard ready", "url", base)
+	cfg.OnReady(sessionURL(base, token))
 
 	errs := make(chan error, 1)
 	go func() {
@@ -229,6 +251,27 @@ func serve(ctx context.Context, cfg Options, handler http.Handler, logger logAda
 		}
 		return nil
 	}
+}
+
+// sessionURL adds the session token to a dashboard URL. The token is URL-safe
+// base64, but it is escaped anyway so a caller-supplied token cannot break the
+// query.
+func sessionURL(base, token string) string {
+	if token == "" {
+		return base
+	}
+	return base + "?" + httpapi.TokenQueryParam + "=" + url.QueryEscape(token)
+}
+
+// resolveIdentity asks the cluster who the kubeconfig is. A failure is reported
+// in the header, not fatal: nothing else depends on it.
+func resolveIdentity(ctx context.Context, clients kube.Clients, logger *slog.Logger) httpapi.IdentityInfo {
+	id, err := kube.WhoAmI(ctx, clients.Kubernetes)
+	if err != nil {
+		logger.Warn("could not read the authenticated identity; the header will say so", "error", err)
+		return httpapi.IdentityInfo{Reason: err.Error()}
+	}
+	return httpapi.IdentityInfo{Available: true, Username: id.Username, UID: id.UID, Groups: id.Groups}
 }
 
 // displayHost turns a bind address into something a person can click. A wildcard

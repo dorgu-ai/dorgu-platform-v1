@@ -131,14 +131,26 @@ function ClusterBadge() {
       : `Missing dorgu.io resources: ${(meta.missingCRDs ?? []).join(', ')}`,
   ].join('\n')
 
+  const identity = meta.identity
+  const identityDetail = identity.available
+    ? [`Authenticated as ${identity.username}`, ...(identity.groups?.length ? [`Groups: ${identity.groups.join(', ')}`] : [])].join('\n')
+    : `Identity not available: ${identity.reason ?? 'unknown'}`
+
   return (
-    <Tooltip content={<span className="whitespace-pre-line">{detail}</span>}>
-      <span className="flex cursor-default items-center gap-1.5 font-mono text-[11px] text-ink-muted">
-        <Dot tone={meta.operatorInstalled ? 'ok' : 'warn'} />
-        {label}
-        {meta.cluster.namespace && <span className="text-ink-faint">/{meta.cluster.namespace}</span>}
-      </span>
-    </Tooltip>
+    <span className="flex items-center gap-3">
+      <Tooltip content={<span className="whitespace-pre-line">{detail}</span>}>
+        <span className="flex cursor-default items-center gap-1.5 font-mono text-[11px] text-ink-muted">
+          <Dot tone={meta.operatorInstalled ? 'ok' : 'warn'} />
+          {label}
+          {meta.cluster.namespace && <span className="text-ink-faint">/{meta.cluster.namespace}</span>}
+        </span>
+      </Tooltip>
+      <Tooltip content={<span className="whitespace-pre-line">{identityDetail}</span>}>
+        <span className="cursor-default font-mono text-[11px] text-ink-faint">
+          {identity.available ? `as ${identity.username}` : 'identity unavailable'}
+        </span>
+      </Tooltip>
+    </span>
   )
 }
 
