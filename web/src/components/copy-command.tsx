@@ -11,14 +11,9 @@ import { Button } from './ui/button'
  * The command is always readable, not hidden behind the button: someone reading
  * over a shoulder or pasting into a runbook needs to see it, and a copy that
  * silently failed would otherwise be indistinguishable from one that worked.
+ * The button is the ordinary primary action, solid ink (section 5.1).
  */
-export function CopyCommand({
-  command,
-  label,
-}: {
-  command: string
-  label?: string
-}) {
+export function CopyCommand({ command, label }: { command: string; label?: string }) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
 
   useEffect(() => {
@@ -32,22 +27,25 @@ export function CopyCommand({
   }, [command])
 
   return (
-    <div className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-line bg-surface-sunken py-1 pr-1 pl-2">
-      {label && <span className="shrink-0 text-[11px] text-ink-faint">{label}</span>}
-      <code className="truncate font-mono text-[11px] text-ink">{command}</code>
+    <div className="inline-flex max-w-full items-center gap-2 rounded-ctl border border-line bg-surface-sunken py-1 pr-1 pl-2.5">
+      {label && <span className="shrink-0 text-small text-ink-muted">{label}</span>}
+      <code className="truncate font-mono text-code text-ink">{command}</code>
       <Button
-        variant="ghost"
+        variant="primary"
         size="icon"
         onClick={copy}
         aria-label={state === 'copied' ? 'Copied' : `Copy: ${command}`}
         title={state === 'failed' ? 'Could not copy. Select the text instead.' : 'Copy'}
       >
         {state === 'copied' ? (
-          <Check className="size-3 text-ok" />
+          <Check className="size-3.5" aria-hidden="true" />
         ) : (
-          <Copy className={state === 'failed' ? 'size-3 text-danger' : 'size-3'} />
+          <Copy className="size-3.5" aria-hidden="true" />
         )}
       </Button>
+      <span className="sr-only" role="status">
+        {state === 'copied' ? 'Copied to the clipboard' : state === 'failed' ? 'Could not copy' : ''}
+      </span>
     </div>
   )
 }

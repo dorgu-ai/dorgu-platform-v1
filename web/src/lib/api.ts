@@ -4,7 +4,9 @@ import type {
   AppsPayload,
   ClusterPayload,
   IncidentsPayload,
+  MemoryPayload,
   Meta,
+  OverviewPayload,
   RemediationsPayload,
   Topic,
 } from './types'
@@ -97,6 +99,40 @@ export const clusterQuery = queryOptions({
   queryFn: () => get<ClusterPayload>('/cluster'),
   ...live,
 })
+
+export const memoryQuery = queryOptions({
+  queryKey: ['memory'] as const,
+  queryFn: () => get<MemoryPayload>('/memory'),
+  ...live,
+})
+
+/** The window the SSE stream keeps current. Other windows are fetched by overviewWindowQuery. */
+export const DEFAULT_WINDOW = '7d'
+
+/** The windows the Overview offers. Any `since` the server parses also works by URL. */
+export const WINDOWS = ['24h', '7d', '30d'] as const
+
+export const overviewQuery = queryOptions({
+  queryKey: ['overview'] as const,
+  queryFn: () => get<OverviewPayload>('/overview'),
+  ...live,
+  // The stream pushes on a change, and the window also slides with the clock, so
+  // a quiet cluster still gets a fresh report once a minute.
+  refetchInterval: 60_000,
+})
+
+/**
+ * Any other window. The stream pushes only the default, so these refetch on a
+ * timer: the window slides with the clock, and a report for "24h" that was true a
+ * minute ago is not the report for now.
+ */
+export const overviewWindowQuery = (since: string) =>
+  queryOptions({
+    queryKey: ['overview-window', since] as const,
+    queryFn: () => get<OverviewPayload>(`/overview?since=${encodeURIComponent(since)}`),
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  })
 
 export const metaQuery = queryOptions({
   queryKey: ['meta'] as const,

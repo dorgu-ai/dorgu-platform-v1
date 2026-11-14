@@ -38,7 +38,7 @@ import { Tooltip } from './ui/tooltip'
 const verdictTone: Record<string, BadgeTone> = {
   rejected: 'danger',
   clamped: 'warn',
-  derived: 'info',
+  derived: 'neutral',
 }
 
 const verdictNote: Record<string, string> = {
@@ -72,7 +72,7 @@ export function StepSafetyBlock({
       }
       aria-label={HEADING}
     >
-      <h4 className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-ink">
+      <h4 className="flex items-center gap-1.5 text-small font-semibold tracking-wide text-ink">
         <Ruler className="size-3 text-ink-muted" aria-hidden="true" />
         {HEADING}
       </h4>
@@ -101,14 +101,14 @@ function SafetyEntry({ entry }: { entry: StepSafety }) {
             {entry.verdict}
           </Badge>
         </Tooltip>
-        <code className="truncate font-mono text-[11px] text-ink">{entry.field}</code>
-        <span className="text-[11px] text-ink-faint">({entry.rule})</span>
+        <code className="truncate font-mono text-small text-ink">{entry.field}</code>
+        <span className="text-small text-ink-muted">({entry.rule})</span>
       </div>
 
       <SafetyFacts entry={entry} />
 
       {entry.message && (
-        <p className="mt-1 text-[11px] leading-relaxed text-ink-muted">{entry.message}</p>
+        <p className="mt-1 text-small leading-relaxed text-ink-muted">{entry.message}</p>
       )}
     </li>
   )
@@ -142,10 +142,10 @@ function SafetyFacts({ entry }: { entry: StepSafety }) {
   )
 
   return (
-    <dl className="mt-1 grid grid-cols-[5.5rem_1fr] gap-x-2 gap-y-0.5 text-[11px]">
+    <dl className="mt-1 grid grid-cols-[5.5rem_1fr] gap-x-2 gap-y-0.5 text-small">
       {facts.map((fact) => (
         <div key={fact.label} className="col-span-2 grid grid-cols-subgrid">
-          <dt className="text-ink-faint">{fact.label}</dt>
+          <dt className="text-ink-muted">{fact.label}</dt>
           <dd
             className={
               fact.tone === 'danger'
@@ -176,7 +176,7 @@ export function VerdictBadge({ verdict, count }: { verdict: string; count: numbe
     >
       <Badge tone={verdictTone[verdict] ?? 'neutral'} className="cursor-default">
         {verdict}
-        {count > 1 && <span className="text-ink-faint">{count}</span>}
+        {count > 1 && <span className="text-ink-muted">{count}</span>}
       </Badge>
     </Tooltip>
   )

@@ -1,16 +1,21 @@
 import { useQuery } from '@tanstack/react-query'
 import { createColumnHelper } from '@tanstack/react-table'
-import { AlertCircle, Bot, Cog } from 'lucide-react'
+import { Link, useSearch } from '@tanstack/react-router'
+import { ArrowUpRight, Bot, Cog } from 'lucide-react'
 import { useMemo } from 'react'
 
-import { SummaryBar } from '@/components/app-shell'
+import { PageHeader, SummaryBar } from '@/components/app-shell'
 import { DataTable, type ColumnMeta } from '@/components/data-table'
 import { ViewEmptyState } from '@/components/empty-state'
-import { LineageLine, ProposalCell } from '@/components/gate-panels'
+import { ErrorState } from '@/components/error-state'
+import { LineageLine, ProposalCell } from '@/components/incident-parts'
+import { MachineTextInline } from '@/components/machine-text'
+import { SignalBadge } from '@/components/signal-badge'
 import { SeverityBadge, UnattributedBadge } from '@/components/status'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip } from '@/components/ui/tooltip'
 import { incidentsQuery } from '@/lib/api'
+import { isModelAuthored } from '@/lib/machine'
 import type { Incident } from '@/lib/types'
 import { useFlash } from '@/lib/use-flash'
 import { absolute, age, confidencePercent } from '@/lib/utils'
@@ -34,21 +39,21 @@ function incidentVersion(incident: Incident): string {
 const columns = [
   column.accessor('severity', {
     header: 'Severity',
-    meta: { width: '7.5rem' } satisfies ColumnMeta,
+    meta: { width: '6.5rem' } satisfies ColumnMeta,
     sortingFn: (a, b) => severityRank(a.original.severity) - severityRank(b.original.severity),
     cell: ({ row }) => <SeverityBadge severity={row.original.severity} />,
   }),
 
   column.accessor('signal', {
     header: 'Signal',
-    meta: { width: 'minmax(11rem, 0.9fr)' } satisfies ColumnMeta,
+    meta: { width: 'minmax(11rem, 1fr)' } satisfies ColumnMeta,
     cell: ({ row }) => <SignalCell incident={row.original} />,
   }),
 
   column.accessor((incident) => incident.persona.name, {
     id: 'persona',
     header: 'Persona',
-    meta: { width: 'minmax(10rem, 0.8fr)' } satisfies ColumnMeta,
+    meta: { width: 'minmax(7rem, 0.6fr)' } satisfies ColumnMeta,
     cell: ({ row }) => <PersonaCell incident={row.original} />,
   }),
 
@@ -56,33 +61,33 @@ const columns = [
     id: 'rootCause',
     header: 'Root cause',
     enableSorting: false,
-    meta: { width: 'minmax(18rem, 2fr)' } satisfies ColumnMeta,
+    meta: { width: 'minmax(12rem, 1.8fr)' } satisfies ColumnMeta,
     cell: ({ row }) => <RootCauseCell incident={row.original} />,
   }),
 
   column.accessor((incident) => incident.rootCause?.confidence ?? '', {
     id: 'confidence',
     header: 'Confidence',
-    meta: { width: '8.5rem' } satisfies ColumnMeta,
+    meta: { width: '7rem' } satisfies ColumnMeta,
     cell: ({ row }) => <ConfidenceCell incident={row.original} />,
   }),
 
   column.accessor((incident) => incident.proposal?.state ?? '', {
     id: 'proposal',
     header: 'Proposal',
-    meta: { width: 'minmax(9rem, 0.8fr)' } satisfies ColumnMeta,
+    meta: { width: 'minmax(8rem, 0.8fr)' } satisfies ColumnMeta,
     cell: ({ row }) => <ProposalCell incident={row.original} />,
   }),
 
   column.accessor('phase', {
     header: 'Phase',
-    meta: { width: '8.5rem' } satisfies ColumnMeta,
+    meta: { width: '7rem' } satisfies ColumnMeta,
     cell: ({ row }) => <PhaseCell incident={row.original} />,
   }),
 
   column.accessor('lastSeen', {
     header: 'Last seen',
-    meta: { width: '6rem', numeric: true } satisfies ColumnMeta,
+    meta: { width: '4.5rem', numeric: true } satisfies ColumnMeta,
     cell: ({ row }) => <LastSeenCell incident={row.original} />,
   }),
 ]
@@ -106,9 +111,14 @@ function severityRank(severity: Incident['severity']): number {
  * incident from yesterday is not more urgent than a warning from ten seconds ago,
  * which is what the severity column and the counts above are for.
  */
-export function IncidentsView() {
+export function IncidentsView({ lineage }: { lineage?: string }) {
   const { data, error } = useQuery(incidentsQuery)
-  const incidents = useMemo(() => data?.incidents ?? [], [data])
+  const all = useMemo(() => data?.incidents ?? [], [data])
+  // A lineage is every incident that shares a key: the original and its -rN recurrences.
+  const incidents = useMemo(
+    () => (lineage ? all.filter((incident) => incident.lineage.key === lineage) : all),
+    [all, lineage],
+  )
   const flashed = useFlash(incidents, (incident) => incident.id, incidentVersion)
 
   const empty = (
@@ -117,11 +127,10 @@ export function IncidentsView() {
 
   if (error) {
     return (
-      <div className="flex flex-col items-center gap-2 px-6 py-16 text-center">
-        <AlertCircle className="size-6 text-danger" />
-        <h3 className="text-sm font-semibold text-ink">Could not read the Incidents view</h3>
-        <p className="max-w-lg text-xs text-ink-muted">{error.message}</p>
-      </div>
+      <>
+        <PageHeader title="Incidents" />
+        <ErrorState title="Could not read the Incidents view" error={error} />
+      </>
     )
   }
 
@@ -129,13 +138,28 @@ export function IncidentsView() {
 
   return (
     <>
+      <PageHeader
+        title="Incidents"
+        description="What Dorgu detected, newest first. A signal badge shows the recurrence (r1, r2) and opens its lineage."
+      />
+      {lineage && (
+        <div className="flex shrink-0 items-center gap-3 border-t border-line bg-accent-soft px-6 py-2 text-small text-ink">
+          <span>
+            Showing the lineage <code className="font-mono text-code">{lineage}</code>: {incidents.length}{' '}
+            incident{incidents.length === 1 ? '' : 's'}, oldest recurrence first in the name.
+          </span>
+          <Link to="/incidents" className="font-medium text-accent hover:underline">
+            Show all incidents
+          </Link>
+        </div>
+      )}
       <SummaryBar
         items={[
           { label: 'incidents', value: summary?.total ?? 0 },
           { label: 'open', value: summary?.open ?? 0, tone: 'warn' },
           { label: 'critical', value: summary?.critical ?? 0, tone: 'danger' },
           { label: 'warning', value: summary?.warning ?? 0, tone: 'warn' },
-          { label: 'info', value: summary?.info ?? 0, tone: 'info' },
+          { label: 'info', value: summary?.info ?? 0, tone: 'neutral' },
           { label: 'diagnosed', value: summary?.diagnosed ?? 0, tone: 'ok' },
           ...(summary && summary.unattributed > 0
             ? [{ label: 'unattributed', value: summary.unattributed, tone: 'warn' as const }]
@@ -143,7 +167,7 @@ export function IncidentsView() {
         ]}
         trailing={
           data?.truncation ? (
-            <span className="text-[11px] text-warn">
+            <span className="text-small text-warn">
               Showing the {data.truncation.shown} most recent of {data.truncation.total}.
             </span>
           ) : null
@@ -166,11 +190,24 @@ export function IncidentsView() {
 // ---------------------------------------------------------------------------
 
 function SignalCell({ incident }: { incident: Incident }) {
+  const escalated = (incident.signals.escalatedFrom?.length ?? 0) > 0
   return (
-    <div className="min-w-0">
-      <div className="truncate font-mono text-ink">{incident.signal}</div>
+    <div className="min-w-0 space-y-0.5">
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        <SignalBadge incident={incident} />
+        {escalated && (
+          <Tooltip
+            content={`Escalated from ${(incident.signals.escalatedFrom ?? []).join(' > ')}${incident.signals.escalatedAt ? ` at ${absolute(incident.signals.escalatedAt)}` : ''}. The incident moved up its signal family because a worse shape of the same fault appeared.`}
+          >
+            <Badge tone="warn" className="cursor-default">
+              <ArrowUpRight className="size-3" aria-hidden="true" />
+              escalated
+            </Badge>
+          </Tooltip>
+        )}
+      </div>
       <Tooltip content={`Detected by ${incident.source}. Category: ${incident.category}.`}>
-        <div className="cursor-default truncate text-[11px] text-ink-faint">{incident.source}</div>
+        <div className="cursor-default truncate text-small text-ink-muted">{incident.source}</div>
       </Tooltip>
       <LineageLine incident={incident} />
     </div>
@@ -183,7 +220,7 @@ function PersonaCell({ incident }: { incident: Incident }) {
       <div className="truncate text-ink">{incident.persona.name}</div>
       <div className="flex items-center gap-1.5">
         {incident.persona.namespace && (
-          <span className="truncate font-mono text-[11px] text-ink-faint">
+          <span className="truncate font-mono text-small text-ink-muted">
             {incident.persona.namespace}
           </span>
         )}
@@ -205,7 +242,7 @@ function RootCauseCell({ incident }: { incident: Incident }) {
   if (!cause) {
     return (
       <Tooltip content="This incident was detected but not diagnosed. Rule-based diagnosis runs on its own; AI diagnosis is opt-in because it costs money and sends cluster data to a provider.">
-        <span className="cursor-default text-ink-faint italic">not diagnosed</span>
+        <span className="cursor-default text-ink-muted italic">not diagnosed</span>
       </Tooltip>
     )
   }
@@ -213,15 +250,19 @@ function RootCauseCell({ incident }: { incident: Incident }) {
   const contributing = cause.contributing ?? []
 
   return (
-    <div className="min-w-0">
-      <Tooltip content={cause.summary}>
-        <div className="cursor-default truncate text-ink">{cause.summary}</div>
-      </Tooltip>
+    <div className="min-w-0 space-y-0.5">
+      {isModelAuthored(cause.provider) ? (
+        <MachineTextInline text={cause.summary} />
+      ) : (
+        <Tooltip content={cause.summary}>
+          <div className="cursor-default truncate text-ink">{cause.summary}</div>
+        </Tooltip>
+      )}
       {contributing.length > 0 && (
         <Tooltip
           content={contributing.map((signal) => `${signal.signal}: ${signal.detail}`).join('\n')}
         >
-          <div className="cursor-default truncate text-[11px] text-ink-faint">
+          <div className="cursor-default truncate text-small text-ink-muted">
             {contributing.length} contributing signal{contributing.length === 1 ? '' : 's'}
           </div>
         </Tooltip>
@@ -240,14 +281,14 @@ function RootCauseCell({ incident }: { incident: Incident }) {
 function ConfidenceCell({ incident }: { incident: Incident }) {
   const cause = incident.rootCause
   // No em dash placeholder: house style, and "none" says what is meant anyway.
-  if (!cause) return <span className="text-ink-faint">none</span>
+  if (!cause) return <span className="text-ink-muted">none</span>
 
   const value = Number.parseFloat(cause.confidence)
   const tone = Number.isNaN(value) ? 'neutral' : value >= 0.8 ? 'ok' : value >= 0.5 ? 'warn' : 'danger'
-  const ai = cause.provider.includes('ai')
+  const ai = isModelAuthored(cause.provider)
 
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="min-w-0 space-y-0.5">
       <Badge tone={tone}>{confidencePercent(cause.confidence)}</Badge>
       <Tooltip
         content={
@@ -256,7 +297,7 @@ function ConfidenceCell({ incident }: { incident: Incident }) {
             : `Diagnosed by ${cause.provider}, which is deterministic code rather than a model.`
         }
       >
-        <span className="flex cursor-default items-center gap-1 text-[11px] text-ink-faint">
+        <span className="flex cursor-default items-center gap-1 text-small text-ink-muted">
           {ai ? <Bot className="size-3" /> : <Cog className="size-3" />}
           <span className="truncate">{cause.provider}</span>
         </span>
@@ -294,11 +335,11 @@ function PhaseCell({ incident }: { incident: Incident }) {
       </Badge>
       {outcome === 'acknowledged' && (
         <Tooltip content="A human approved an advisory plan. The decision is recorded and nothing was applied to your cluster, so the underlying problem is still there.">
-          <div className="cursor-default truncate text-[11px] text-warn">acknowledged only</div>
+          <div className="cursor-default truncate text-small text-warn">acknowledged only</div>
         </Tooltip>
       )}
       {incident.occurrenceCount > 1 && (
-        <div className="truncate text-[11px] text-ink-faint">
+        <div className="truncate text-small text-ink-muted">
           seen {incident.occurrenceCount}&#215;
         </div>
       )}
@@ -311,7 +352,12 @@ function LastSeenCell({ incident }: { incident: Incident }) {
     <Tooltip
       content={`First seen ${absolute(incident.firstSeen)}\nLast seen ${absolute(incident.lastSeen)}`}
     >
-      <span className="cursor-default text-ink-faint">{age(incident.lastSeen)}</span>
+      <span className="cursor-default text-ink-muted">{age(incident.lastSeen)}</span>
     </Tooltip>
   )
+}
+
+export function IncidentsRoute() {
+  const { lineage } = useSearch({ strict: false })
+  return <IncidentsView lineage={lineage} />
 }

@@ -1,3 +1,7 @@
 node_modules
 dist
 *.tsbuildinfo
+screenshots/
+playwright-report/
+test-results/
+coverage/

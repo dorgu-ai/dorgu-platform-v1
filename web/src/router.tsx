@@ -6,8 +6,16 @@ import {
   redirect,
 } from '@tanstack/react-router'
 
-import { NotFound, RootLayout } from './components/root-layout'
-import { appsQuery, clusterQuery, incidentsQuery, metaQuery, remediationsQuery } from './lib/api'
+import { NotFound, RootLayout, RoutePending, RouteError } from './components/root-layout'
+import {
+  appsQuery,
+  clusterQuery,
+  incidentsQuery,
+  memoryQuery,
+  metaQuery,
+  overviewQuery,
+  remediationsQuery,
+} from './lib/api'
 import { queryClient } from './query-client'
 
 /**
@@ -38,15 +46,36 @@ const rootRoute = createRootRoute({
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
-  // Apps is the landing view because it is the one that works on a cluster with
-  // no operator installed: every Deployment shows up as unwatched, which makes
-  // the first screen the onboarding path.
+  // Overview is the landing view. On a cluster with no operator it says so and
+  // points at Apps, which still works: every Deployment shows up as unwatched.
   beforeLoad: () => {
     // TanStack Router's redirect() returns a control-flow object that is meant
     // to be thrown; it is not an Error and does not need to be.
     // eslint-disable-next-line @typescript-eslint/only-throw-error
-    throw redirect({ to: '/apps', replace: true })
+    throw redirect({ to: '/overview', replace: true })
   },
+})
+
+/** Optional string search params, kept only when they are strings. */
+function stringParam(search: Record<string, unknown>, key: string): { [k: string]: string } {
+  const value = search[key]
+  return typeof value === 'string' && value !== '' ? { [key]: value } : {}
+}
+
+const overviewRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/overview',
+  validateSearch: (search: Record<string, unknown>) => stringParam(search, 'since') as { since?: string },
+  loader: () => queryClient.ensureQueryData(overviewQuery),
+  component: lazyRouteComponent(() => import('./routes/overview'), 'OverviewRoute'),
+})
+
+const memoryRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/memory',
+  validateSearch: (search: Record<string, unknown>) => stringParam(search, 'record') as { record?: string },
+  loader: () => queryClient.ensureQueryData(memoryQuery),
+  component: lazyRouteComponent(() => import('./routes/memory'), 'MemoryRoute'),
 })
 
 const appsRoute = createRoute({
@@ -59,15 +88,17 @@ const appsRoute = createRoute({
 const incidentsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/incidents',
+  validateSearch: (search: Record<string, unknown>) => stringParam(search, 'lineage') as { lineage?: string },
   loader: () => queryClient.ensureQueryData(incidentsQuery),
-  component: lazyRouteComponent(() => import('./routes/incidents'), 'IncidentsView'),
+  component: lazyRouteComponent(() => import('./routes/incidents'), 'IncidentsRoute'),
 })
 
 const remediationsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/remediations',
+  validateSearch: (search: Record<string, unknown>) => stringParam(search, 'review') as { review?: string },
   loader: () => queryClient.ensureQueryData(remediationsQuery),
-  component: lazyRouteComponent(() => import('./routes/remediations'), 'RemediationsView'),
+  component: lazyRouteComponent(() => import('./routes/remediations'), 'RemediationsRoute'),
 })
 
 const clusterRoute = createRoute({
@@ -79,6 +110,8 @@ const clusterRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  overviewRoute,
+  memoryRoute,
   appsRoute,
   incidentsRoute,
   remediationsRoute,
@@ -90,6 +123,14 @@ export const router = createRouter({
   // The Go server serves index.html for any unclaimed path, so a deep link the
   // router does not know about lands here rather than on a 404 from the server.
   defaultNotFoundComponent: NotFound,
+  // A loader that throws (a 401, a server that went away) lands on the error state
+  // instead of a blank page.
+  defaultErrorComponent: RouteError,
+  // A loader that is still reading shows skeleton rows after 150 ms, and keeps them
+  // for at least 300 ms so a fast read does not flash.
+  defaultPendingComponent: RoutePending,
+  defaultPendingMs: 150,
+  defaultPendingMinMs: 300,
   // Route loaders prime the cache from the same query options the views use, so
   // a navigation never shows a spinner for data already in memory.
   defaultPreload: 'intent',

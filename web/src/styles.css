@@ -1,64 +1,87 @@
 @import 'tailwindcss';
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/jetbrains-mono';
 
 /*
- * Tailwind v4 configures in CSS, so this file is the design system.
+ * The design system, in code. DESIGN.md at the repo root is the reference and
+ * this file is section 8 of it: change them together.
  *
- * The palette is deliberately narrow. This is a dense operations surface where
- * colour carries meaning: red, amber and green mean unhealthy, degraded and
- * healthy, and nothing else is allowed to use them. Everything structural is a
- * neutral, so a red dot on the screen is always a fact about the cluster.
+ * Colour is a fact. Red, amber and green mean unhealthy, degraded and healthy and
+ * nothing else; orchid means "a machine wrote this text"; indigo means "you can
+ * act here". Everything structural is a neutral. Components use these tokens
+ * and never a raw colour: `npm run lint` rejects hex values and arbitrary or
+ * default-palette colour classes, and `npm test` checks the contrast of every
+ * pair below in both themes.
  */
+
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --color-surface: oklch(21% 0.012 260);
-  --color-surface-raised: oklch(25% 0.012 260);
-  --color-surface-sunken: oklch(17% 0.012 260);
-  --color-line: oklch(32% 0.014 260);
-  --color-line-strong: oklch(42% 0.016 260);
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
-  --color-ink: oklch(96% 0.004 260);
-  --color-ink-muted: oklch(72% 0.012 260);
-  --color-ink-faint: oklch(58% 0.012 260);
+  --text-kpi: 28px;   --text-kpi--line-height: 32px;
+  --text-h1: 20px;    --text-h1--line-height: 28px;
+  --text-h2: 16px;    --text-h2--line-height: 24px;
+  --text-h3: 14px;    --text-h3--line-height: 20px;
+  --text-body: 14px;  --text-body--line-height: 20px;
+  --text-table: 13px; --text-table--line-height: 18px;
+  --text-small: 12px; --text-small--line-height: 16px;
+  --text-caption: 11px; --text-caption--line-height: 14px;
+  --text-code: 12.5px; --text-code--line-height: 18px;
 
-  --color-danger: oklch(64% 0.19 22);
-  --color-danger-soft: oklch(30% 0.09 22);
-  --color-warn: oklch(76% 0.15 75);
-  --color-warn-soft: oklch(32% 0.07 75);
-  --color-ok: oklch(71% 0.15 152);
-  --color-ok-soft: oklch(29% 0.07 152);
-  --color-info: oklch(70% 0.13 245);
-  --color-info-soft: oklch(30% 0.07 245);
+  --radius-pill: 4px; --radius-ctl: 6px; --radius-panel: 8px;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
 
-  --font-mono:
-    ui-monospace, 'SF Mono', 'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace;
-  --font-sans:
-    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  /* Motion, section 6: 150 ms on the standard curve for hover, focus and colour. */
+  --default-transition-duration: 150ms;
+  --default-transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+
+  /* light (default) */
+  --color-bg: #fafafa;
+  --color-surface: #ffffff;
+  --color-surface-sunken: #f3f3f3;
+  --color-surface-hover: #f5f5f5;
+  --color-line: #e4e4e4;
+  --color-line-strong: #cfcfcf;
+  --color-ink: #111111;
+  --color-ink-on: #ffffff;
+  --color-ink-muted: #616161;
+  --color-ink-faint: #8a8a8a;
+  --color-accent: #4f46e5;
+  --color-accent-on: #ffffff;
+  --color-accent-hover: #4338ca;
+  --color-accent-soft: #eef0fe;
+  --color-danger: #cf2a30;  --color-danger-soft: #fdecec;
+  --color-warn: #a65300;    --color-warn-soft: #fbefdd;
+  --color-ok: #15784b;      --color-ok-soft: #e2f3ea;
+  --color-machine: #8e35e6; --color-machine-soft: #f4ecfd;
 }
 
-/*
- * Light mode is the same semantics with the neutrals inverted. It is here from
- * the start because it costs one block and because a dashboard that only works
- * in one theme is one somebody will screenshot badly.
- */
-html:not(.dark) {
-  --color-surface: oklch(99% 0.002 260);
-  --color-surface-raised: oklch(100% 0 0);
-  --color-surface-sunken: oklch(96% 0.004 260);
-  --color-line: oklch(90% 0.006 260);
-  --color-line-strong: oklch(80% 0.01 260);
+.dark {
+  color-scheme: dark;
+  --color-bg: #0a0a0a;
+  --color-surface: #121212;
+  --color-surface-sunken: #0d0d0d;
+  --color-surface-hover: #1a1a1a;
+  --color-line: #272727;
+  --color-line-strong: #3a3a3a;
+  --color-ink: #ededed;
+  --color-ink-on: #0a0a0a;
+  --color-ink-muted: #9e9e9e;
+  --color-ink-faint: #6e6e6e;
+  --color-accent: #7b7bf7;
+  --color-accent-on: #0a0a0a;
+  --color-accent-hover: #9494fa;
+  --color-accent-soft: #1b1b3a;
+  --color-danger: #ff5257;  --color-danger-soft: #341416;
+  --color-warn: #f2a531;    --color-warn-soft: #33260f;
+  --color-ok: #33c178;      --color-ok-soft: #102b1c;
+  --color-machine: #c58af9; --color-machine-soft: #241a33;
+}
 
-  --color-ink: oklch(24% 0.012 260);
-  --color-ink-muted: oklch(46% 0.014 260);
-  --color-ink-faint: oklch(60% 0.012 260);
-
-  --color-danger: oklch(52% 0.2 22);
-  --color-danger-soft: oklch(94% 0.04 22);
-  --color-warn: oklch(56% 0.14 75);
-  --color-warn-soft: oklch(95% 0.05 75);
-  --color-ok: oklch(50% 0.14 152);
-  --color-ok-soft: oklch(94% 0.05 152);
-  --color-info: oklch(52% 0.16 245);
-  --color-info-soft: oklch(94% 0.04 245);
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0ms !important; animation-duration: 0ms !important; }
 }
 
 @layer base {
@@ -73,22 +96,22 @@ html:not(.dark) {
   }
 
   body {
-    background-color: var(--color-surface);
+    background-color: var(--color-bg);
     color: var(--color-ink);
     font-family: var(--font-sans);
-    /* Tabular numerals stop replica counts and incident totals from jittering
-       as they change, which on a live feed is the difference between readable
-       and distracting. */
+    font-size: 14px;
+    line-height: 20px;
+    /* Numbers in tables, meters and KPIs always use tabular digits (section 2). */
     font-variant-numeric: tabular-nums;
     -webkit-font-smoothing: antialiased;
   }
 
+  /* Section 5.1: a 2 px accent ring offset 2 px, always visible on keyboard focus. */
   :focus-visible {
-    outline: 2px solid var(--color-info);
+    outline: 2px solid var(--color-accent);
     outline-offset: 2px;
   }
 
-  /* Scrollbars inside virtualised lists, kept out of the way. */
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
@@ -106,13 +129,12 @@ html:not(.dark) {
 
 @layer utilities {
   /*
-   * A live update should be noticeable without being a distraction: a single
-   * short flash on a row that changed, and nothing for anyone who has asked
-   * their system not to animate.
+   * Section 6: data updates do not animate position, and a changed row gets a
+   * 600 ms background highlight that fades out. Nothing pulses or loops.
    */
   @keyframes dorgu-flash {
     from {
-      background-color: var(--color-info-soft);
+      background-color: var(--color-accent-soft);
     }
     to {
       background-color: transparent;
@@ -120,32 +142,27 @@ html:not(.dark) {
   }
 
   .flash-on-change {
-    animation: dorgu-flash 700ms ease-out;
+    animation: dorgu-flash 600ms ease-out;
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .flash-on-change {
-      animation: none;
+  /* Panels and sheets: 200 ms slide and fade in. */
+  @keyframes dorgu-sheet-in {
+    from {
+      opacity: 0;
+      transform: translateX(16px);
     }
-  }
-
-  @keyframes dorgu-pulse {
-    0%,
-    100% {
+    to {
       opacity: 1;
-    }
-    50% {
-      opacity: 0.35;
+      transform: translateX(0);
     }
   }
 
-  .pulse-slow {
-    animation: dorgu-pulse 1.8s ease-in-out infinite;
+  .sheet-in {
+    animation: dorgu-sheet-in 200ms var(--ease-standard);
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .pulse-slow {
-      animation: none;
-    }
+  /* Skeletons are static shapes. A pulse would be a loop. */
+  .machine-edge {
+    border-left: 2px dashed var(--color-machine);
   }
 }

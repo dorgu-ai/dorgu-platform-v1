@@ -16,6 +16,8 @@ export function TooltipProvider(props: TooltipPrimitive.TooltipProviderProps) {
  * A tooltip is where the long form of a fact lives: the full managedBy detail,
  * a match-chain rung, an absolute timestamp. The dense table shows the short
  * form; nothing important is only in a tooltip.
+ *
+ * It is an overlay, so it is allowed the system's one soft shadow.
  */
 export function Tooltip({
   children,
@@ -36,8 +38,8 @@ export function Tooltip({
           side={side}
           sideOffset={6}
           className={cn(
-            'z-50 max-w-sm rounded-md border border-line-strong bg-surface-raised px-2.5 py-1.5',
-            'text-xs leading-relaxed text-ink shadow-lg',
+            'z-50 max-w-sm rounded-ctl border border-line-strong bg-surface px-2.5 py-1.5',
+            'text-small text-ink shadow-lg',
           )}
         >
           {content}
