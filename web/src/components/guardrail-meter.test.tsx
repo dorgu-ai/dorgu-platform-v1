@@ -6,11 +6,11 @@ import { readGuardrail } from '@/lib/guardrail'
 
 import { GuardrailMeter } from './guardrail-meter'
 
-const meter = (ratio: string, extra: Record<string, string> = {}) =>
+const meter = (ratio: string, extra: Record<string, string> = {}, outcome?: 'pass' | 'clamp' | 'refuse') =>
   render(
     <TooltipProvider>
       <GuardrailMeter
-        reading={readGuardrail({ field: 'spec.resources.limits.memory', ratio, max: '2.0', baseline: '128Mi', requested: '192Mi', ...extra })!}
+        reading={readGuardrail({ field: 'spec.resources.limits.memory', ratio, max: '2.0', baseline: '128Mi', requested: '192Mi', outcome, ...extra })!}
       />
     </TooltipProvider>,
   )
@@ -56,5 +56,29 @@ describe('the guardrail meter', () => {
   it('shows a decrease with a negative sign and the 50% floor', () => {
     meter('0.70')
     expect(screen.getByText('change -30% of limit (max -50%)')).toBeInTheDocument()
+  })
+
+  it('renders a clamped value in warn: the bar, the data attribute and the words', () => {
+    meter('32.00', { permitted: '256Mi' }, 'clamp')
+    expect(screen.getByTestId('guardrail-meter')).toHaveAttribute('data-tone', 'warn')
+    expect(screen.getByRole('meter').firstElementChild?.className).toContain('bg-warn')
+    const note = screen.getByText(/over the ceiling, narrowed to what Dorgu permits/)
+    expect(note.className).toContain('text-warn')
+    expect(note.className).not.toContain('text-danger')
+    expect(screen.getByText('permitted 256Mi')).toBeInTheDocument()
+  })
+
+  it('keeps a refusal in danger', () => {
+    meter('32.00', {}, 'refuse')
+    expect(screen.getByTestId('guardrail-meter')).toHaveAttribute('data-tone', 'danger')
+    expect(screen.getByRole('meter').firstElementChild?.className).toContain('bg-danger')
+    expect(screen.getByText('over the ceiling').className).toContain('text-danger')
+  })
+
+  it('keeps an unclamped pass out of the status colours until it nears the ceiling', () => {
+    meter('1.50', {}, 'pass')
+    expect(screen.getByTestId('guardrail-meter')).toHaveAttribute('data-tone', 'ink')
+    expect(screen.getByRole('meter').firstElementChild?.className).toContain('bg-ink')
+    expect(screen.queryByText(/narrowed/)).not.toBeInTheDocument()
   })
 })

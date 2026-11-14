@@ -12,6 +12,8 @@ import type { GateVerdict, Remediation, StepSafety } from './types'
  */
 export interface GuardrailReading {
   field: string
+  /** What the guardrail did with the value, when a verdict says. Absent for bare numbers. */
+  outcome?: GuardrailOutcome
   baseline?: string
   requested?: string
   permitted?: string
@@ -24,6 +26,41 @@ export interface GuardrailReading {
   over: boolean
 }
 
+/** What a guardrail did: let a value through, narrowed it to what Dorgu permits, or refused it. */
+export type GuardrailOutcome = 'pass' | 'clamp' | 'refuse'
+
+/**
+ * The one place a guardrail outcome becomes a status tone, so the gate pill, the
+ * meter and the safety badges cannot disagree. A clamp is a warning: the plan
+ * asked for more than the ceiling allowed and Dorgu narrowed it. It is not a
+ * clean pass, so it is never ok, and it is not a refusal, so it is not danger.
+ */
+export function outcomeTone(outcome: GuardrailOutcome): 'ok' | 'warn' | 'danger' {
+  switch (outcome) {
+    case 'refuse':
+      return 'danger'
+    case 'clamp':
+      return 'warn'
+    default:
+      return 'ok'
+  }
+}
+
+const OUTCOME_RANK: Record<GuardrailOutcome, number> = { pass: 0, clamp: 1, refuse: 2 }
+
+/** The stronger of two outcomes: a later pass never softens a clamp, nor a clamp a refusal. */
+function strongest(a: GuardrailOutcome | undefined, b: GuardrailOutcome | undefined): GuardrailOutcome | undefined {
+  if (!a || !b) return a ?? b
+  return OUTCOME_RANK[b] > OUTCOME_RANK[a] ? b : a
+}
+
+/** A step safety verdict as an outcome. `derived` is a computed value, not a ruling, so it has none. */
+export function safetyOutcome(verdict: string): GuardrailOutcome | undefined {
+  if (verdict === 'clamped') return 'clamp'
+  if (verdict === 'rejected') return 'refuse'
+  return undefined
+}
+
 /** Decreases are capped at half the baseline: the operator's MaxResourceDecrease. */
 const MAX_DECREASE_PERCENT = 50
 
@@ -34,6 +71,7 @@ export function readGuardrail(input: {
   baseline?: string
   requested?: string
   permitted?: string
+  outcome?: GuardrailOutcome
 }): GuardrailReading | undefined {
   const ratio = Number.parseFloat(input.ratio ?? '')
   const max = Number.parseFloat(input.max ?? '')
@@ -44,6 +82,7 @@ export function readGuardrail(input: {
   const usedPercent = (Math.abs(changePercent) / ceilingPercent) * 100
   return {
     field: input.field,
+    outcome: input.outcome,
     baseline: input.baseline,
     requested: input.requested,
     permitted: input.permitted,
@@ -54,8 +93,16 @@ export function readGuardrail(input: {
   }
 }
 
-/** The bar is ink, warn above 80% of the ceiling and danger when over it. */
+/**
+ * The meter's tone. A refusal is danger and a clamp is warn, whatever the numbers
+ * say: the verdict is what the gate decided. With no verdict (bare numbers) the
+ * bar is ink, warn above 80% of the ceiling and danger when over it. Ink is the
+ * neutral bar of an ordinary pass; the meter never uses ok, because a bar nearly
+ * at its ceiling is not a success to be coloured as one.
+ */
 export function guardrailTone(reading: GuardrailReading): 'ink' | 'warn' | 'danger' {
+  if (reading.outcome === 'refuse') return 'danger'
+  if (reading.outcome === 'clamp') return 'warn'
   if (reading.over) return 'danger'
   if (reading.usedPercent > 80) return 'warn'
   return 'ink'
@@ -86,6 +133,7 @@ export function readingsFromVerdicts(verdicts: GateVerdict[] | undefined): Guard
       max: v.numbers.max,
       baseline: v.numbers.baseline,
       requested: v.numbers.requested,
+      outcome: v.verdict,
     })
     if (reading) out.push(reading)
   }
@@ -104,6 +152,7 @@ export function readingsFromSafety(entries: StepSafety[] | undefined): Guardrail
       baseline: e.baseline,
       requested: e.requested,
       permitted: e.permitted,
+      outcome: safetyOutcome(e.verdict),
     })
     if (reading) out.push(reading)
   }
@@ -117,21 +166,45 @@ export function baselineWord(field: string): string {
   return 'baseline'
 }
 
-/** The gate's readings first, then any step safety reading for a field the gate did not measure. */
+/**
+ * The gate's readings first, then any step safety reading for a field the gate did
+ * not measure.
+ *
+ * Where both name a field they are one reading, and the stronger outcome wins. The
+ * gate records the approval seal as a pass over the already-clamped patch, so its
+ * own verdict can be a clean pass for a field the step records as clamped; the
+ * clamp is what happened, so it is kept, along with the values the step recorded.
+ */
 export function collectReadings(remediation: Remediation): GuardrailReading[] {
   const fromGate = [
     ...readingsFromVerdicts(remediation.gate?.verdicts),
     ...readingsFromVerdicts(remediation.ticket?.verdicts),
   ]
-  const seen = new Set(fromGate.map((r) => r.field))
-  const out = [...fromGate]
+  const out = new Map<string, GuardrailReading>()
+  for (const reading of fromGate) {
+    const seen = out.get(reading.field)
+    out.set(reading.field, seen ? { ...seen, outcome: strongest(seen.outcome, reading.outcome) } : reading)
+  }
   for (const step of remediation.steps) {
-    for (const reading of readingsFromSafety(step.safety)) {
-      if (seen.has(reading.field)) continue
-      seen.add(reading.field)
-      out.push(reading)
+    for (const entry of readingsFromSafety(step.safety)) {
+      const seen = out.get(entry.field)
+      out.set(
+        entry.field,
+        seen
+          ? {
+              ...seen,
+              outcome: strongest(seen.outcome, entry.outcome),
+              requested: seen.requested ?? entry.requested,
+              permitted: seen.permitted ?? entry.permitted,
+            }
+          : entry,
+      )
     }
   }
-  return out
+  return [...out.values()]
 }
 
+/** Whether any step records that a guardrail clamped a value when the plan was made. */
+export function proposalClamped(remediation: Remediation): boolean {
+  return remediation.steps.some((s) => s.safety?.some((e) => safetyOutcome(e.verdict) === 'clamp') ?? false)
+}

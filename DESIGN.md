@@ -153,10 +153,16 @@ Disabled buttons say why in a tooltip.
 - **Gate strip.** Six pills in order: Validate, Ground, Ownership, Guardrails, Mode, Dedup. Each pill is passed (ok
   soft), refused (danger soft, shows reason on hover and in the review panel), deferred (warn soft; "deferred" is not
   a refusal and says so), or not run (neutral outline). A refusal stops the strip; later stages render as not run.
+  A pass that clamped a value is warn soft with "clamped" on the pill, never ok.
 - **Guardrail meter.** Label, a thin bar, and numbers: "change +50% of limit (max 100%)". The bar is ink; it turns
   warn above 80% of the ceiling and danger when over. Always show the ceiling and its source (persona or ClusterPersona).
+  The gate's verdict wins over the arithmetic: a clamped value is warn and a refused one is danger, whatever the
+  numbers say, and a clean pass never wears a status colour. One function (`outcomeTone`) decides the tone of the
+  gate pill, the meter and the safety badges.
 - **Ownership badge.** `Unmanaged` (neutral) or `Helm` / `Argo CD` / `Flux` / `Kustomize` (warn outline) plus the
   text "advisory only: Dorgu will not write this workload". Owned workloads never show an Approve that implies a write.
+  The review footer says so in one calm sentence: "Approving records the decision only. Helm owns this workload,
+  so make the change there, in the chart or its values."
 - **Ticket chip.** States: not issued (neutral), issued with countdown "expires in 12:41" (accent outline),
   consumed (ok), expired with reason (warn: ApprovalTimedOut, Superseded, PredatesGate, IncidentResolved).
 - **Machine text block.** Orchid 2 px dashed left edge, `machine-soft` background, uppercase caption

@@ -16,6 +16,8 @@ const DEFAULT_CEILING_SOURCE = 'operator blast-radius rule'
  * The guardrail meter, section 5.3: a label, a thin bar and the numbers, "change
  * +50% of limit (max +100%)". The bar is ink, turns warn above 80% of the ceiling
  * and danger when over it, and always shows the ceiling and where it comes from.
+ * A value the gate clamped is warn and a refused one is danger, whatever the
+ * numbers say (see `guardrailTone`).
  *
  * Those are Dorgu's numbers, computed from the live workload, which is why they
  * are a meter and not a sentence: nothing here is a model's claim.
@@ -56,7 +58,11 @@ export function GuardrailMeter({
         {reading.requested && <span>asked {reading.requested}</span>}
         {reading.permitted && <span>permitted {reading.permitted}</span>}
         <span>ceiling source: {source}</span>
-        {reading.over && <span className="font-medium text-danger">over the ceiling</span>}
+        {reading.over && (
+          <span className={cn('font-medium', tone === 'danger' ? 'text-danger' : 'text-warn')}>
+            {reading.outcome === 'clamp' ? 'over the ceiling, narrowed to what Dorgu permits' : 'over the ceiling'}
+          </span>
+        )}
       </div>
     </div>
   )
