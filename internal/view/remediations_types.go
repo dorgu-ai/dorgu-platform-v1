@@ -213,6 +213,10 @@ type Remediation struct {
 	// read-only in this release and the honest affordance is the command that
 	// can act, not a control that cannot.
 	DiffCommand string `json:"diffCommand"`
+	// ApproveCommand is the CLI command that approves this plan, set only while it
+	// is Pending. The dashboard cannot approve in this release, so this is how a
+	// reviewer acts on what the panel showed them. Empty once a decision exists.
+	ApproveCommand string `json:"approveCommand,omitempty"`
 
 	// Rollback is the plan's rollback configuration, absent when it carries
 	// none.

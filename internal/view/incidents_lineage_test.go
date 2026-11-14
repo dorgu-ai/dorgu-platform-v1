@@ -75,6 +75,16 @@ func TestProposalStates(t *testing.T) {
 			ProposalDeferred, "", "",
 		},
 		{
+			"an older operator wrote the stand-down for an outstanding proposal as a refusal: still a deferral",
+			cond(dorguv1.ConditionProposalRefused, "True", "DedupCooldown_ActiveRemediation", "waiting"),
+			ProposalDeferred, "DedupCooldown", "ActiveRemediation",
+		},
+		{
+			"a cooldown after a rejection is a real refusal",
+			cond(dorguv1.ConditionProposalRefused, "True", "DedupCooldown_RejectionCooldown", ""),
+			ProposalRefused, "DedupCooldown", "RejectionCooldown",
+		},
+		{
 			"made",
 			cond(dorguv1.ConditionProposalRefused, "False", dorguv1.ReasonProposalMade, ""),
 			ProposalMade, "", "",

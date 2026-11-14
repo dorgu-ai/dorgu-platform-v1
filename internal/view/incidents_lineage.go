@@ -176,6 +176,12 @@ func projectProposal(conditions []metav1.Condition) *IncidentProposal {
 		Since:   c.LastTransitionTime,
 	}
 	switch {
+	case c.Status == metav1.ConditionTrue && isLegacyDeferral(c.Reason):
+		// An operator before the fix wrote the stand-down of an outstanding proposal as
+		// a refusal, on every open incident one cycle after proposing. It is waiting for
+		// a human, not refused, and `dorgu report` counts it the same way.
+		out.State = ProposalDeferred
+		out.Stage, out.Guardrail = splitStageReason(c.Reason)
 	case c.Status == metav1.ConditionTrue:
 		out.State = ProposalRefused
 		out.Stage, out.Guardrail = splitStageReason(c.Reason)
@@ -187,6 +193,13 @@ func projectProposal(conditions []metav1.Condition) *IncidentProposal {
 		out.State = ProposalCleared
 	}
 	return out
+}
+
+// isLegacyDeferral reports whether a True ProposalRefused reason is really an
+// outstanding proposal: DedupCooldown_ActiveRemediation.
+func isLegacyDeferral(reason string) bool {
+	stage, guardrail := splitStageReason(reason)
+	return stage == "DedupCooldown" && guardrail == "ActiveRemediation"
 }
 
 // projectRefusalRecord reads the durable ProposalRefusalRecorded condition.
