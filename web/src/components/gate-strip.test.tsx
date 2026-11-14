@@ -89,6 +89,42 @@ describe('the gate strip', () => {
     expect(guardrails).toHaveTextContent('clamped')
   })
 
+  it('draws a clamped pill in warn, a clean pass in ok and a refusal in danger', () => {
+    renderStrip(gate([verdict('Validate', 'x', 'pass'), verdict('Guardrails', 'blast-radius', 'clamp')], 'Clamp'))
+    expect(document.querySelector('[data-stage="Guardrails"]')?.className).toContain('bg-warn-soft')
+    expect(document.querySelector('[data-stage="Guardrails"]')?.className).not.toContain('bg-ok-soft')
+    expect(document.querySelector('[data-stage="Validate"]')?.className).toContain('bg-ok-soft')
+  })
+
+  it('draws a refused guardrail in danger and does not call it clamped', () => {
+    renderStrip(gate([verdict('Guardrails', 'blast-radius', 'refuse', { reason: 'over' })], 'Refuse'))
+    const pill = document.querySelector('[data-stage="Guardrails"]') as Element
+    expect(pill.className).toContain('bg-danger-soft')
+    expect(pill).not.toHaveTextContent('clamped')
+  })
+
+  it('draws the Guardrails pill as clamped when the plan was clamped at proposal and the gate sealed a pass', () => {
+    render(
+      <TooltipProvider delayDuration={0}>
+        <GateStrip gate={gate(ALL_PASS)} proposalClamped />
+      </TooltipProvider>,
+    )
+    const pill = document.querySelector('[data-stage="Guardrails"]') as Element
+    expect(pill.getAttribute('data-state')).toBe('passed')
+    expect(pill).toHaveTextContent('clamped')
+    expect(pill.className).toContain('bg-warn-soft')
+    expect(document.querySelector('[data-stage="Validate"]')?.className).toContain('bg-ok-soft')
+  })
+
+  it('does not mark a refused Guardrails pill clamped just because a step was', () => {
+    render(
+      <TooltipProvider delayDuration={0}>
+        <GateStrip gate={gate([verdict('Guardrails', 'blast-radius', 'refuse')], 'Refuse')} proposalClamped />
+      </TooltipProvider>,
+    )
+    expect(document.querySelector('[data-stage="Guardrails"]')).not.toHaveTextContent('clamped')
+  })
+
   it('renders every pill as not run, and says so, when the operator wrote no gate record', () => {
     renderStrip(undefined)
     expect(states().every(([, s]) => s === 'not-run')).toBe(true)

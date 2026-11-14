@@ -42,7 +42,61 @@ test.describe('the review panel (read-only)', () => {
     const meter = p.getByTestId('guardrail-meter')
     await expect(meter).toContainText('change +3100% of limit (max +100%)')
     await expect(meter).toContainText('ceiling source')
-    await expect(meter).toHaveAttribute('data-tone', 'danger')
+    // The clamp asked for 32x against a 2x ceiling and Dorgu narrowed it: a warning, not a refusal.
+    await expect(meter).toHaveAttribute('data-tone', 'warn')
+    await expect(meter).toContainText('over the ceiling, narrowed to what Dorgu permits')
+  })
+
+  test('a clamped guardrail is warn on the gate pill, the meter and the safety badge, and nowhere ok', async ({ page }) => {
+    await open(page, 'full', '/remediations?review=apps%2Ffix-oom-checkout')
+    const p = panel(page, 'fix-oom-checkout')
+    const pill = p.getByTestId('gate-strip').locator('[data-stage="Guardrails"]')
+    await expect(pill).toContainText('clamped')
+    await expect(pill).toHaveClass(/bg-warn-soft/)
+    await expect(pill).not.toHaveClass(/bg-ok-soft/)
+    // The other five stages are clean passes and stay ok.
+    await expect(p.getByTestId('gate-strip').locator('[data-state="passed"].bg-ok-soft')).toHaveCount(5)
+    await expect(p.getByLabel(/Dorgu guardrails/).locator('span', { hasText: /^clamped$/ })).toHaveClass(/bg-warn-soft/)
+    await expect(p.getByLabel(/Dorgu guardrails/).locator('span', { hasText: /^rejected$/ })).toHaveClass(/bg-danger-soft/)
+
+    // The meter bar is the same warn token as the pill.
+    const warn = await tokenColour(page, 'warn')
+    const bar = p.getByTestId('guardrail-meter').getByRole('meter').locator('> div')
+    expect(await bar.evaluate((e) => getComputedStyle(e).backgroundColor)).toBe(warn)
+  })
+
+  test('a clean pass is not painted as a clamp, and a refusal is still danger', async ({ page }) => {
+    await open(page, 'full', '/remediations?review=apps%2Ffix-oom-reports')
+    const reports = panel(page, 'fix-oom-reports')
+    await expect(reports.getByTestId('guardrail-meter')).toHaveAttribute('data-tone', 'ink')
+    await expect(reports.getByTestId('gate-strip')).not.toContainText('clamped')
+
+    await open(page, 'full', '/remediations?review=apps%2Frefused-frontend-limits')
+    const refused = panel(page, 'refused-frontend-limits')
+    await expect(refused.getByTestId('gate-strip').locator('[data-stage="Guardrails"]')).toHaveClass(/bg-danger-soft/)
+    for (const meter of await refused.getByTestId('guardrail-meter').all()) {
+      await expect(meter).toHaveAttribute('data-tone', 'danger')
+    }
+  })
+
+  test('the footer of an owned workload says approving records the decision only and the owner owns it', async ({ page }) => {
+    await open(page, 'full', '/remediations?review=apps%2Ffix-oom-checkout')
+    const helm = panel(page, 'fix-oom-checkout').getByTestId('owned-footer-note')
+    await expect(helm).toContainText('Approving records the decision only.')
+    await expect(helm).toContainText('Helm owns this workload, so make the change there')
+    await expect(panel(page, 'fix-oom-checkout')).toContainText('Record the decision with the CLI:')
+
+    await open(page, 'full', '/remediations?review=apps%2Frestart-frontend')
+    const argo = panel(page, 'restart-frontend').getByTestId('owned-footer-note')
+    await expect(argo).toContainText('Approving records the decision only.')
+    await expect(argo).toContainText('Argo CD owns this workload, so make the change there')
+    expect((await argo.textContent()) ?? '').not.toMatch(/[\u2014\u2013]/)
+  })
+
+  test('the footer of a workload Dorgu may write carries no owned note', async ({ page }) => {
+    await open(page, 'full', '/remediations?review=apps%2Ffix-oom-reports')
+    await expect(panel(page, 'fix-oom-reports').getByTestId('owned-footer-note')).toHaveCount(0)
+    await expect(panel(page, 'fix-oom-reports')).toContainText('Approve with the CLI:')
   })
 
   test('puts the model-written plan in a machine text block, as plain text', async ({ page }) => {

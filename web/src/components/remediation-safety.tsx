@@ -1,5 +1,6 @@
 import { Ruler } from 'lucide-react'
 
+import { outcomeTone, safetyOutcome } from '@/lib/guardrail'
 import type { StepSafety } from '@/lib/types'
 
 import { Badge, type BadgeTone } from './ui/badge'
@@ -35,10 +36,15 @@ import { Tooltip } from './ui/tooltip'
  * left to be inferred from a missing word.
  */
 
-const verdictTone: Record<string, BadgeTone> = {
-  rejected: 'danger',
-  clamped: 'warn',
-  derived: 'neutral',
+/**
+ * A safety verdict's badge tone, from the same outcome-to-tone rule the meter and
+ * the gate pill use: rejected is danger, clamped is warn. `derived` is a value
+ * Dorgu computed and no ruling on the plan, so it is neutral, as is any verdict
+ * this build does not know.
+ */
+function verdictToneOf(verdict: string): BadgeTone {
+  const outcome = safetyOutcome(verdict)
+  return outcome ? outcomeTone(outcome) : 'neutral'
 }
 
 const verdictNote: Record<string, string> = {
@@ -86,7 +92,7 @@ export function StepSafetyBlock({
 }
 
 function SafetyEntry({ entry }: { entry: StepSafety }) {
-  const tone = verdictTone[entry.verdict] ?? 'neutral'
+  const tone = verdictToneOf(entry.verdict)
 
   return (
     <li className="min-w-0">
@@ -123,7 +129,7 @@ function SafetyEntry({ entry }: { entry: StepSafety }) {
  * value means nothing will be applied and that is worth stating.
  */
 function SafetyFacts({ entry }: { entry: StepSafety }) {
-  const facts: { label: string; value: string; tone?: 'danger' | 'ok' }[] = []
+  const facts: { label: string; value: string; tone?: 'danger' | 'warn' | 'ok' }[] = []
 
   if (entry.requested) facts.push({ label: 'requested', value: entry.requested })
   if (entry.baseline) facts.push({ label: 'baseline', value: entry.baseline })
@@ -137,7 +143,7 @@ function SafetyFacts({ entry }: { entry: StepSafety }) {
 
   facts.push(
     entry.permitted
-      ? { label: 'applying', value: entry.permitted, tone: 'ok' }
+      ? { label: 'applying', value: entry.permitted, tone: entry.verdict === 'clamped' ? 'warn' : 'ok' }
       : { label: 'applying', value: 'nothing', tone: 'danger' },
   )
 
@@ -150,9 +156,11 @@ function SafetyFacts({ entry }: { entry: StepSafety }) {
             className={
               fact.tone === 'danger'
                 ? 'font-mono text-danger'
-                : fact.tone === 'ok'
-                  ? 'font-mono text-ok'
-                  : 'font-mono text-ink-muted'
+                : fact.tone === 'warn'
+                  ? 'font-mono text-warn'
+                  : fact.tone === 'ok'
+                    ? 'font-mono text-ok'
+                    : 'font-mono text-ink-muted'
             }
           >
             {fact.value}
@@ -174,7 +182,7 @@ export function VerdictBadge({ verdict, count }: { verdict: string; count: numbe
     <Tooltip
       content={`${verdictNote[verdict] ?? 'A Dorgu guardrail ruled on this plan.'} ${count === 1 ? 'One field was ruled on' : `${count} fields were ruled on`}; open the plan for the field-by-field account.`}
     >
-      <Badge tone={verdictTone[verdict] ?? 'neutral'} className="cursor-default">
+      <Badge tone={verdictToneOf(verdict)} className="cursor-default">
         {verdict}
         {count > 1 && <span className="text-ink-muted">{count}</span>}
       </Badge>

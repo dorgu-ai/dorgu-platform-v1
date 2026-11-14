@@ -29,7 +29,13 @@ function isDeferral(v: GateVerdict): boolean {
   return v.verdict === 'refuse' && v.stage === 'DedupCooldown' && v.guardrail === 'active-remediation'
 }
 
-export function readStages(gate: RemediationGate | undefined): StageReading[] {
+/**
+ * `proposalClamped` is true when a step records that a guardrail clamped a value
+ * when the plan was made. The approval gate seals a pass over the already-clamped
+ * patch, so its own Guardrails verdict can read as clean; the pill still says the
+ * stage narrowed a value, because it did.
+ */
+export function readStages(gate: RemediationGate | undefined, proposalClamped = false): StageReading[] {
   const verdicts = gate?.verdicts ?? []
   let stopped = false
 
@@ -46,7 +52,7 @@ export function readStages(gate: RemediationGate | undefined): StageReading[] {
       return reading
     }
     reading.state = 'passed'
-    reading.clamped = own.some((v) => v.verdict === 'clamp')
+    reading.clamped = own.some((v) => v.verdict === 'clamp') || (stage === 'Guardrails' && proposalClamped)
     reading.reason = own.find((v) => v.reason)?.reason
     return reading
   })

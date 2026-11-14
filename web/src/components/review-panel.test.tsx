@@ -76,7 +76,7 @@ describe('the review panel', () => {
     open(clamped)
     expect(screen.getByTestId('gate-strip')).toBeInTheDocument()
     expect(screen.getByTestId('guardrail-meter')).toHaveTextContent('change +3100% of limit (max +100%)')
-    expect(screen.getByText('over the ceiling')).toBeInTheDocument()
+    expect(screen.getByText('over the ceiling, narrowed to what Dorgu permits')).toBeInTheDocument()
     expect(screen.getByText(/ceiling source/)).toBeInTheDocument()
   })
 
@@ -190,5 +190,81 @@ describe('the review panel', () => {
   it('moves focus to its heading when it opens', () => {
     open(clamped)
     expect(screen.getByRole('heading', { level: 2, name: 'fix-oom-checkout' })).toHaveFocus()
+  })
+})
+
+describe('the footer of a plan whose workload something else owns', () => {
+  const owned = (managedBy: NonNullable<Remediation['workload']>['managedBy'], extra: Partial<NonNullable<Remediation['workload']>> = {}) =>
+    remediation({
+      approveCommand: 'dorgu remediation approve fix-x -n apps',
+      workload: { ...helm, managedBy, owned: managedBy !== 'unmanaged', ...extra },
+    })
+  const footer = () => screen.getByTestId('owned-footer-note')
+
+  it.each([
+    ['helm', 'Helm', /chart/],
+    ['argocd', 'Argo CD', /Git source/],
+    ['flux', 'Flux', /Git source/],
+    ['kustomize', 'Kustomize', /kustomization/],
+  ] as const)('says approving records the decision only and that %s owns the workload', (managedBy, label, where) => {
+    open(owned(managedBy))
+    expect(footer()).toHaveTextContent('Approving records the decision only.')
+    expect(footer()).toHaveTextContent(`${label} owns this workload`)
+    expect(footer()).toHaveTextContent(where)
+    expect(footer()).toHaveTextContent('make the change there')
+  })
+
+  it('is short, calm and has no em dash', () => {
+    for (const managedBy of ['helm', 'argocd', 'flux', 'kustomize', 'unknown'] as const) {
+      const { unmount } = open(owned(managedBy))
+      const text = footer().textContent ?? ''
+      expect(text).not.toMatch(/[\u2014\u2013]/)
+      expect(text.length).toBeLessThan(200)
+      unmount()
+    }
+  })
+
+  it('says the same, without naming a tool, when the owner is unknown and treated as owned', () => {
+    open(owned('unknown'))
+    expect(footer()).toHaveTextContent('Approving records the decision only.')
+    expect(footer()).toHaveTextContent('could not tell what owns this workload')
+  })
+
+  it('tells the reader the command records a decision, not a fix, instead of "Approve with the CLI"', () => {
+    open(owned('helm'))
+    expect(screen.getByText('Record the decision with the CLI:')).toBeInTheDocument()
+    expect(screen.queryByText('Approve with the CLI:')).not.toBeInTheDocument()
+  })
+
+  it('is absent for a workload Dorgu may write, and the command label is unchanged', () => {
+    open(owned('unmanaged'))
+    expect(screen.queryByTestId('owned-footer-note')).not.toBeInTheDocument()
+    expect(screen.getByText('Approve with the CLI:')).toBeInTheDocument()
+  })
+
+  it('is absent when there is no workload record, which the Target section already explains', () => {
+    open(remediation({ approveCommand: 'dorgu remediation approve fix-x -n apps' }))
+    expect(screen.queryByTestId('owned-footer-note')).not.toBeInTheDocument()
+  })
+
+  it('keeps the approve-later note and the viewer line next to it', () => {
+    open(owned('helm'))
+    expect(screen.getByTestId('approve-later-note')).toHaveTextContent(APPROVE_LATER_NOTE)
+    expect(screen.getByTestId('viewing-as')).toBeInTheDocument()
+  })
+})
+
+describe('the panel tones for a clamped plan', () => {
+  it('agrees across the gate pill, the meter and the safety block: warn', () => {
+    open(clamped)
+    expect(document.querySelector('[data-stage="Guardrails"]')?.className).toContain('bg-warn-soft')
+    expect(screen.getByTestId('guardrail-meter')).toHaveAttribute('data-tone', 'warn')
+    expect(screen.getByText('clamped', { selector: 'span.bg-warn-soft' })).toBeInTheDocument()
+  })
+
+  it('is warn on the pill and the meter when only the step records the clamp (sealed gate)', () => {
+    const sealed = { ...clamped, gate: gate(ALL_PASS, 'Pass') }
+    open(sealed)
+    expect(document.querySelector('[data-stage="Guardrails"]')?.className).toContain('bg-warn-soft')
   })
 })

@@ -30,6 +30,7 @@ for (const theme of themes) {
 
     const panels: [string, string][] = [
       ['review-clamped-helm', '/remediations?review=apps%2Ffix-oom-checkout'],
+      ['review-owned-argo', '/remediations?review=apps%2Frestart-frontend'],
       ['review-refused', '/remediations?review=apps%2Frefused-frontend-limits'],
       ['review-ticketed', '/remediations?review=apps%2Fticketed-reports-cpu'],
       ['memory-detail', '/memory?record=apps%2Fcheckout-cpu-throttle'],

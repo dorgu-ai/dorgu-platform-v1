@@ -36,7 +36,7 @@ for (const theme of themes) {
     }
 
     test('the review panel, for a clamped and a refused plan, has none', async ({ page }) => {
-      for (const name of ['fix-oom-checkout', 'refused-frontend-limits', 'ticketed-reports-cpu', 'completed-checkout-cpu']) {
+      for (const name of ['fix-oom-checkout', 'restart-frontend', 'refused-frontend-limits', 'ticketed-reports-cpu', 'completed-checkout-cpu']) {
         await open(page, 'full', `/remediations?review=apps%2F${name}`, theme)
         await page.getByRole('complementary', { name: `Review ${name}` }).waitFor()
         await page.waitForTimeout(250)

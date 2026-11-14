@@ -1,6 +1,7 @@
 import { Check, CircleDashed, Hourglass, X } from 'lucide-react'
 
 import { readStages, type StageReading, type StageState } from '@/lib/gate-stages'
+import { outcomeTone } from '@/lib/guardrail'
 import type { RemediationGate, RemediationReason } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -10,6 +11,7 @@ import { Tooltip } from './ui/tooltip'
  * The gate strip, section 5.3: six pills in the order the operator runs its gate.
  *
  *   passed    ok soft
+ *   clamped   warn soft: a pass that narrowed a value is not a clean pass
  *   refused   danger soft, with the reason on hover and in the panel below
  *   deferred  warn soft, and says it is not a refusal
  *   not run   neutral outline
@@ -23,6 +25,17 @@ const pillClass: Record<StageState, string> = {
   refused: 'border-danger/40 bg-danger-soft text-danger',
   deferred: 'border-warn/40 bg-warn-soft text-warn',
   'not-run': 'border-line-strong bg-transparent text-ink-muted',
+}
+
+const toneClass: Record<'ok' | 'warn' | 'danger', string> = {
+  ok: pillClass.passed,
+  warn: pillClass.deferred,
+  danger: pillClass.refused,
+}
+
+/** A clamped pass takes the clamp's tone from the one place that decides it. */
+function pillTone(r: StageReading): string {
+  return r.state === 'passed' && r.clamped ? toneClass[outcomeTone('clamp')] : pillClass[r.state]
 }
 
 const stateWord: Record<StageState, string> = {
@@ -63,12 +76,15 @@ function stageNote(r: StageReading): string | undefined {
 
 export function GateStrip({
   gate,
+  proposalClamped = false,
   className,
 }: {
   gate: RemediationGate | undefined
+  /** A step records a clamp made when the plan was proposed. */
+  proposalClamped?: boolean
   className?: string
 }) {
-  const stages = readStages(gate)
+  const stages = readStages(gate, proposalClamped)
 
   return (
     <div className={cn('space-y-2', className)}>
@@ -85,7 +101,7 @@ export function GateStrip({
                 data-state={r.state}
                 className={cn(
                   'inline-flex cursor-default items-center gap-1 rounded-pill border px-2 py-1 text-caption font-medium',
-                  pillClass[r.state],
+                  pillTone(r),
                 )}
               >
                 <StateIcon state={r.state} />
@@ -113,11 +129,13 @@ export function GateStrip({
 export function GateReasons({
   gate,
   refusal,
+  proposalClamped = false,
 }: {
   gate: RemediationGate | undefined
   refusal?: RemediationReason
+  proposalClamped?: boolean
 }) {
-  const stages = readStages(gate).filter((r) => r.state === 'refused' || r.state === 'deferred' || r.clamped)
+  const stages = readStages(gate, proposalClamped).filter((r) => r.state === 'refused' || r.state === 'deferred' || r.clamped)
   if (stages.length === 0 && !refusal) return null
 
   return (

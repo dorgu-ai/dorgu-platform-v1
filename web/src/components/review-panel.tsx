@@ -1,4 +1,4 @@
-import { Lock, Terminal } from 'lucide-react'
+import { Info, Lock, Terminal } from 'lucide-react'
 
 import { GateReasons, GateStrip } from '@/components/gate-strip'
 import { GuardrailMeter } from '@/components/guardrail-meter'
@@ -10,8 +10,8 @@ import { Dot, ManagedByBadge } from '@/components/status'
 import { TicketChip } from '@/components/ticket-chip'
 import { Badge, type BadgeTone } from '@/components/ui/badge'
 import { Tooltip } from '@/components/ui/tooltip'
-import { APPROVE_LATER_NOTE } from '@/lib/copy'
-import { collectReadings } from '@/lib/guardrail'
+import { APPROVE_LATER_NOTE, ownedFooterNote } from '@/lib/copy'
+import { collectReadings, proposalClamped } from '@/lib/guardrail'
 import type { Identity, OwnerInstruction, Remediation, Step } from '@/lib/types'
 
 import { CopyCommand } from './copy-command'
@@ -43,6 +43,7 @@ export function ReviewPanel({
 }) {
   const workload = remediation.workload
   const readings = collectReadings(remediation)
+  const clampedAtProposal = proposalClamped(remediation)
   const command = remediation.approveCommand ?? remediation.diffCommand
 
   return (
@@ -59,7 +60,14 @@ export function ReviewPanel({
         </span>
       }
       onClose={onClose}
-      footer={<ReviewFooter command={command} approvable={remediation.approveCommand !== undefined} identity={identity} />}
+      footer={
+        <ReviewFooter
+          command={command}
+          approvable={remediation.approveCommand !== undefined}
+          identity={identity}
+          ownedNote={workload?.owned ? ownedFooterNote(workload.managedBy) : undefined}
+        />
+      }
     >
       <SheetSection title="Target">
         {workload ? (
@@ -107,8 +115,8 @@ export function ReviewPanel({
       )}
 
       <SheetSection title="Gate">
-        <GateStrip gate={remediation.gate} />
-        <GateReasons gate={remediation.gate} refusal={remediation.gateRefusal} />
+        <GateStrip gate={remediation.gate} proposalClamped={clampedAtProposal} />
+        <GateReasons gate={remediation.gate} refusal={remediation.gateRefusal} proposalClamped={clampedAtProposal} />
       </SheetSection>
 
       <SheetSection title="Guardrails">
@@ -148,10 +156,13 @@ function ReviewFooter({
   command,
   approvable,
   identity,
+  ownedNote,
 }: {
   command: string
   approvable: boolean
   identity: Identity | undefined
+  /** Set when something else owns the workload: approving then records a decision and writes nothing. */
+  ownedNote?: string
 }) {
   return (
     <div className="space-y-2">
@@ -165,10 +176,16 @@ function ReviewFooter({
           <>Your identity is not available ({identity?.reason ?? 'unknown'}).</>
         )}
       </p>
+      {ownedNote && (
+        <p className="flex items-start gap-1.5 text-small text-ink" data-testid="owned-footer-note">
+          <Info className="mt-0.5 size-3 shrink-0 text-ink-muted" aria-hidden="true" />
+          {ownedNote}
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-3">
         <span className="flex items-center gap-1.5 text-small text-ink-muted">
           <Terminal className="size-3.5" aria-hidden="true" />
-          {approvable ? 'Approve with the CLI:' : 'Read this plan in a terminal:'}
+          {approvable ? (ownedNote ? 'Record the decision with the CLI:' : 'Approve with the CLI:') : 'Read this plan in a terminal:'}
         </span>
         <CopyCommand command={command} />
       </div>
