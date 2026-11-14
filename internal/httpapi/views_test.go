@@ -23,6 +23,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -95,6 +96,122 @@ func TestRemediationsWithoutTheCRDReportsTheOperatorMissing(t *testing.T) {
 	assert.False(t, payload.Readiness.CRDsInstalled)
 	assert.Contains(t, payload.Readiness.MissingCRDs, kube.ResourceRemediationActions)
 	assert.Empty(t, payload.Remediations)
+}
+
+// ---------------------------------------------------------------------------
+// Overview and Memory
+// ---------------------------------------------------------------------------
+
+func TestOverviewServesTheReportForTheDefaultAndARequestedWindow(t *testing.T) {
+	h := newHarness(t, nil)
+	h.ready()
+	h.store.PutRemediation(&dorguv1.RemediationAction{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "fix", CreationTimestamp: metav1.Now()},
+		Status:     dorguv1.RemediationActionStatus{Phase: "Pending"},
+	})
+
+	var def view.OverviewPayload
+	rec := h.get(t, "/api/v1/overview")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &def))
+	require.NotNil(t, def.Report)
+	assert.Equal(t, "7d", def.Window)
+	assert.Equal(t, 1, def.Report.HealAccounting.Total)
+	assert.Empty(t, def.Report.Cluster.Context, "the context comes from SnapshotOptions, empty in this harness")
+
+	var day view.OverviewPayload
+	require.NoError(t, json.Unmarshal(h.get(t, "/api/v1/overview?since=24h").Body.Bytes(), &day))
+	assert.Equal(t, "1d", day.Window)
+	assert.Equal(t, "1d", day.Report.Window.Since)
+}
+
+func TestOverviewRefusesAWindowItCannotParseRatherThanGuessing(t *testing.T) {
+	h := newHarness(t, nil)
+	h.ready()
+	rec := h.get(t, "/api/v1/overview?since=yesterday")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), `invalid since "yesterday"`)
+}
+
+func TestOverviewIsWarmingBeforeTheRemediationsList(t *testing.T) {
+	h := newHarness(t, nil)
+	h.store.SetCRDPresent(kube.ResourceRemediationActions, true)
+	h.store.SetSynced(kube.ResourceRemediationActions, false)
+
+	var payload view.OverviewPayload
+	require.NoError(t, json.Unmarshal(h.get(t, "/api/v1/overview").Body.Bytes(), &payload))
+	assert.Nil(t, payload.Report)
+	assert.False(t, payload.Readiness.Synced)
+}
+
+func TestOverviewNamesTheResourceItCouldNotRead(t *testing.T) {
+	h := newHarness(t, nil)
+	h.ready()
+	h.store.SetSyncFailed(kube.ResourceRemediationActions, "forbidden: cannot list remediationactions")
+
+	var payload view.OverviewPayload
+	require.NoError(t, json.Unmarshal(h.get(t, "/api/v1/overview").Body.Bytes(), &payload))
+	assert.Nil(t, payload.Report)
+	require.Len(t, payload.Readiness.Unavailable, 1)
+	assert.Equal(t, kube.ResourceRemediationActions, payload.Readiness.Unavailable[0].Resource)
+}
+
+// Events the user may not read cost one section, not the page: the report still
+// renders and says the declines are not recorded.
+func TestOverviewStillRendersWhenOnlyTheEventsAreRefused(t *testing.T) {
+	h := newHarness(t, nil)
+	h.ready()
+	h.store.SetSyncFailed(informers.NameActionEvents, "forbidden: cannot list events")
+
+	var payload view.OverviewPayload
+	require.NoError(t, json.Unmarshal(h.get(t, "/api/v1/overview").Body.Bytes(), &payload))
+	require.NotNil(t, payload.Report)
+	assert.True(t, payload.Report.CLIDeclines.NoData)
+	assert.True(t, payload.Readiness.Synced)
+	assert.Empty(t, payload.Readiness.Unavailable, "the page is not refused for one input")
+}
+
+func TestMemoryEndpointServesConditions(t *testing.T) {
+	h := newHarness(t, nil)
+	h.ready()
+	h.store.PutIncident(&dorguv1.IncidentMemory{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "oom"},
+		Status: dorguv1.IncidentMemoryStatus{Phase: "Resolved", Conditions: []metav1.Condition{{
+			Type: dorguv1.ConditionProposalRefusalRecorded, Status: metav1.ConditionTrue, Reason: "Validate_StepCommand",
+		}}},
+	})
+
+	rec := h.get(t, "/api/v1/memory")
+	require.Equal(t, http.StatusOK, rec.Code)
+	var payload view.MemoryPayload
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	require.Len(t, payload.Memories, 1)
+	assert.Equal(t, "ProposalRefusalRecorded", payload.Memories[0].Conditions[0].Type)
+	assert.Equal(t, 1, payload.Summary.Refused)
+}
+
+func TestMetaListsEveryViewAndWhichOnesAreDisabled(t *testing.T) {
+	h := newHarness(t, nil)
+	h.ready()
+	h.store.PutDeployment(&appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "dorgu-system", Name: "op", Labels: map[string]string{view.OperatorLabel: view.OperatorLabelValue}},
+		Status:     appsv1.DeploymentStatus{ReadyReplicas: 1},
+	})
+
+	var meta Meta
+	require.NoError(t, json.Unmarshal(h.get(t, "/api/v1/meta").Body.Bytes(), &meta))
+	ids := []string{}
+	for _, v := range meta.Views {
+		ids = append(ids, v.ID)
+		if v.ID == "agents" {
+			assert.False(t, v.Available)
+			assert.NotEmpty(t, v.Reason, "a disabled view says why")
+		} else {
+			assert.True(t, v.Available, v.ID)
+		}
+	}
+	assert.Equal(t, []string{"overview", "incidents", "remediations", "apps", "memory", "cluster", "agents"}, ids)
+	assert.True(t, meta.Operator.Running())
 }
 
 // ---------------------------------------------------------------------------

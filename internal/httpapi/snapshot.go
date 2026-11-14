@@ -17,6 +17,8 @@ limitations under the License.
 package httpapi
 
 import (
+	"time"
+
 	"github.com/dorgu-ai/dorgu-platform-v1/internal/informers"
 	"github.com/dorgu-ai/dorgu-platform-v1/internal/kube"
 	"github.com/dorgu-ai/dorgu-platform-v1/internal/store"
@@ -55,6 +57,14 @@ type SnapshotOptions struct {
 	// RemediationLimit caps the remediation list. Zero uses
 	// view.DefaultRemediationLimit; negative means no cap.
 	RemediationLimit int
+	// MemoryLimit caps the Memory list. Zero uses view.DefaultMemoryLimit;
+	// negative means no cap.
+	MemoryLimit int
+	// Context is the kubeconfig context name, shown in the Overview report.
+	Context string
+	// Now is the clock, replaceable so a test can pin the window. Nil is the
+	// real clock.
+	Now func() time.Time
 	// ExcludedNamespaces overrides SystemNamespaces when non-nil.
 	ExcludedNamespaces map[string]bool
 }
@@ -111,6 +121,81 @@ func (s *Snapshots) Remediations() view.RemediationsPayload {
 		Limit:        s.opts.RemediationLimit,
 		Readiness:    s.remediationsReadiness(),
 	})
+}
+
+// Memory projects the Memory view: every IncidentMemory with its conditions.
+func (s *Snapshots) Memory() view.MemoryPayload {
+	return view.BuildMemory(view.IncidentsInput{
+		Incidents: s.store.Incidents(),
+		Personas:  s.store.AppPersonas(),
+		Namespace: s.opts.Namespace,
+		Limit:     s.opts.MemoryLimit,
+		Readiness: s.incidentsReadiness(),
+	})
+}
+
+// Overview projects the Overview page for a window. The report in it is computed
+// by pkg/report from the same records `dorgu report` reads through kubectl.
+func (s *Snapshots) Overview(since time.Duration) view.OverviewPayload {
+	return view.BuildOverview(view.OverviewInput{
+		Remediations:    s.store.Remediations(),
+		Incidents:       s.store.Incidents(),
+		Events:          s.store.ActionEvents(),
+		Deployments:     s.store.Deployments(),
+		AppPersonas:     s.store.AppPersonas(),
+		ClusterPersonas: s.store.ClusterPersonas(),
+		Context:         s.opts.Context,
+		Namespace:       s.opts.Namespace,
+		Now:             s.now(),
+		Since:           since,
+		Reads: view.OverviewReads{
+			Remediations:    s.read(kube.ResourceRemediationActions, true),
+			Incidents:       s.read(kube.ResourceIncidentMemories, true),
+			Personas:        s.read(kube.ResourceApplicationPersonas, true),
+			ClusterPersonas: s.read(kube.ResourceClusterPersonas, true),
+			Events:          s.read(informers.NameActionEvents, false),
+		},
+		Readiness: s.overviewReadiness(),
+	})
+}
+
+// read describes one input's state. settled is true once the informer finished
+// its list or gave up on it, because the Overview computes with whatever it could
+// read and names what it could not, rather than waiting for a list that is never
+// coming.
+func (s *Snapshots) read(name string, crd bool) view.InputRead {
+	failure := s.store.SyncFailure(name)
+	present := !crd || s.store.CRDPresent(name)
+	return view.InputRead{
+		Present: present,
+		Synced:  !present || s.store.Synced(name) || failure != "",
+		Failure: failure,
+	}
+}
+
+// overviewReadiness states what the Overview knows. Only the RemediationActions
+// can make it unavailable: every other input degrades one section to "no data"
+// and says so in the report's input errors.
+func (s *Snapshots) overviewReadiness() view.Readiness {
+	needed := []string{kube.ResourceRemediationActions}
+	synced := s.syncedIfPresent(needed...)
+	for _, name := range []string{kube.ResourceIncidentMemories, kube.ResourceApplicationPersonas, kube.ResourceClusterPersonas, informers.NameActionEvents} {
+		r := s.read(name, name != informers.NameActionEvents)
+		synced = synced && r.Synced
+	}
+	return view.Readiness{
+		Synced:        synced,
+		CRDsInstalled: s.store.CRDPresent(kube.ResourceRemediationActions),
+		MissingCRDs:   s.missing(needed...),
+		Unavailable:   s.unavailable(needed...),
+	}
+}
+
+func (s *Snapshots) now() time.Time {
+	if s.opts.Now != nil {
+		return s.opts.Now()
+	}
+	return time.Now()
 }
 
 // Cluster projects the Cluster view.

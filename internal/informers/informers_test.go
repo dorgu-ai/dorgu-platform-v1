@@ -187,8 +187,8 @@ func TestEveryInstalledResourceGetsAnInformer(t *testing.T) {
 	f := newFixture(t, allPresent())
 
 	watched := f.set.Watched()
-	assert.Len(t, watched, len(kube.DorguResources)+3,
-		"the five CRDs plus Deployments, Pods and Nodes")
+	assert.Len(t, watched, len(kube.DorguResources)+4,
+		"the five CRDs plus Deployments, Pods, Nodes and the Events about RemediationActions")
 	for _, r := range kube.DorguResources {
 		assert.Contains(t, watched, r)
 	}
@@ -473,4 +473,30 @@ func TestPodsEnterTheCacheTrimmed(t *testing.T) {
 	assert.Nil(t, pods[0].ManagedFields)
 	assert.Nil(t, pods[0].Annotations)
 	assert.Equal(t, map[string]string{"app": "checkout"}, pods[0].Labels)
+}
+
+// The Events informer watches only the Events the report reads. Without the
+// field selector it would cache every Event in the cluster.
+func TestActionEventsAreWatchedWithAFieldSelector(t *testing.T) {
+	ev := &corev1.Event{
+		ObjectMeta:     metav1.ObjectMeta{Namespace: "shop", Name: "ev1"},
+		Reason:         "DorguCLINoTicket",
+		InvolvedObject: corev1.ObjectReference{Kind: "RemediationAction", Name: "fix"},
+	}
+	f := newFixture(t, allPresent(), ev)
+
+	var selector string
+	f.typed.PrependReactor("list", "events", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if list, ok := action.(k8stesting.ListAction); ok {
+			selector = list.GetListRestrictions().Fields.String()
+		}
+		return false, nil, nil
+	})
+	f.start(t)
+
+	assert.Equal(t, "involvedObject.kind=RemediationAction", selector)
+	assert.Contains(t, f.set.Watched(), NameActionEvents)
+	assert.True(t, f.store.Synced(NameActionEvents))
+	require.Eventually(t, func() bool { return len(f.store.ActionEvents()) == 1 }, 5*time.Second, 10*time.Millisecond)
+	assert.Equal(t, "DorguCLINoTicket", f.store.ActionEvents()[0].Reason)
 }

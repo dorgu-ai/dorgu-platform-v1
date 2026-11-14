@@ -82,7 +82,7 @@ func newHarness(t *testing.T, assets fs.FS, opts ...func(*Config)) *harness {
 // ready marks every informer synced and every CRD installed, which is the
 // steady state on a cluster with the operator running.
 func (h *harness) ready() {
-	for _, name := range []string{informers.NameDeployments, informers.NamePods, informers.NameNodes} {
+	for _, name := range []string{informers.NameDeployments, informers.NamePods, informers.NameNodes, informers.NameActionEvents} {
 		h.store.SetSynced(name, true)
 	}
 	for _, resource := range kube.DorguResources {

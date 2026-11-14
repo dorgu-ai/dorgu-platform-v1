@@ -144,6 +144,7 @@ func Run(ctx context.Context, opts Options) error {
 			Namespace:        cfg.Namespace,
 			IncidentLimit:    cfg.IncidentLimit,
 			RemediationLimit: cfg.RemediationLimit,
+			Context:          conn.Context,
 		}),
 		Broker: broker,
 		Logger: logger,

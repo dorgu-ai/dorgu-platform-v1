@@ -36,6 +36,13 @@ const (
 	// TopicCluster covers ClusterPersonas. Gated on CF6-2 (CR-03); stored, not
 	// rendered.
 	TopicCluster Topic = "cluster"
+	// TopicMemory covers the Memory view: the IncidentMemory record, including
+	// the conditions the operator keeps for the life of the incident.
+	TopicMemory Topic = "memory"
+	// TopicOverview covers the Overview page: the KPI report, which is computed
+	// from RemediationActions, IncidentMemories, personas and the Events the CLI
+	// writes. Any of them changing republishes it.
+	TopicOverview Topic = "overview"
 	// TopicMeta covers server-side facts that are not cluster objects: which
 	// CRDs are installed, whether the informers have synced.
 	TopicMeta Topic = "meta"
@@ -48,5 +55,7 @@ var AllTopics = []Topic{
 	TopicRemediations,
 	TopicEvents,
 	TopicCluster,
+	TopicOverview,
+	TopicMemory,
 	TopicMeta,
 }

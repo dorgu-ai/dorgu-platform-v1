@@ -20,6 +20,7 @@ import (
 	"net/http"
 
 	"github.com/dorgu-ai/dorgu-platform-v1/internal/kube"
+	"github.com/dorgu-ai/dorgu-platform-v1/internal/view"
 )
 
 // Meta is what the dashboard says about itself.
@@ -47,6 +48,11 @@ type Meta struct {
 	// StreamClients is how many SSE clients are connected. Shown because a
 	// dashboard claiming to be live should be able to prove the stream is up.
 	StreamClients int `json:"streamClients"`
+
+	// Operator is what the cluster's Deployments say about the operator itself:
+	// whether one is running. It is what separates "the operator is installed and
+	// has recorded nothing" from "the CRDs are installed and nothing is running".
+	Operator view.OperatorStatus `json:"operator"`
 
 	// Views lists what this build renders and what is deliberately not built
 	// yet. Stating the gap is the same instinct as the self-healing doc's
@@ -114,15 +120,31 @@ type ViewStatus struct {
 // decision rather than a consequence of shipping a view, so the Remediations
 // screen shows the plan and offers the CLI command that can act on it.
 var views = []ViewStatus{
-	{ID: "apps", Label: "Apps", Available: true},
+	{
+		ID:        "overview",
+		Label:     "Overview",
+		Available: true,
+		Limitation: "The figures are computed by the same code as `dorgu report`, from your cluster's own " +
+			"records, so the two agree. Anything with no sample behind it says so instead of showing 0.",
+	},
 	{ID: "incidents", Label: "Incidents", Available: true},
 	{
+		// The route is still /remediations: it is stable, and links to it exist.
 		ID:        "remediations",
-		Label:     "Remediations",
+		Label:     "Proposals",
 		Available: true,
-		Limitation: "Read-only. This screen shows a plan, its guardrail verdicts and its diff, " +
-			"and cannot approve or apply anything: the dashboard writes nothing to your cluster " +
-			"in this release. Approve with the CLI, which prints the same plan first.",
+		Limitation: "Read-only. This screen shows a proposal, its gate verdicts, guardrails and diff, " +
+			"and cannot approve or apply anything: approving from the dashboard arrives in a later " +
+			"release. Approve with the CLI, which prints the same plan first. Proposals written by " +
+			"other agents arrive with the agent interface.",
+	},
+	{ID: "apps", Label: "Apps", Available: true},
+	{
+		ID:        "memory",
+		Label:     "Memory",
+		Available: true,
+		Limitation: "Every IncidentMemory the operator holds, open or closed, with its conditions. " +
+			"ProposalRefused is the live state and ProposalRefusalRecorded is the durable record of a refusal.",
 	},
 	{
 		ID:        "cluster",
@@ -131,6 +153,12 @@ var views = []ViewStatus{
 		Limitation: "Saturation is computed here from your live Nodes and Pods rather than read " +
 			"from the operator, so it does not depend on the operator version installed. " +
 			"Used figures need metrics-server and say so when it does not answer.",
+	},
+	{
+		ID:        "agents",
+		Label:     "Agents",
+		Available: false,
+		Reason:    "Connected agents arrive with the agent interface, which is not in this release.",
 	},
 }
 
@@ -158,6 +186,7 @@ func (s *Server) meta() Meta {
 		OperatorInstalled: installed,
 		Synced:            s.cfg.Store.SyncedAll(),
 		StreamClients:     s.cfg.Broker.Subscribers(),
+		Operator:          view.OperatorStatusOf(s.cfg.Store.Deployments()),
 		Views:             views,
 	}
 }
