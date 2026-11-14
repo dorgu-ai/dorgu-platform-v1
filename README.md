@@ -354,6 +354,17 @@ KUBECONFIG=/tmp/dorgu-devcluster.kubeconfig ./bin/dorgu-dashboard
 
 Add `-no-crds` to see the operator-not-installed screens.
 
+For the real server over invented data with no cluster and no envtest at all,
+`hack/fixture-server` fills the store from `internal/fixtures` and serves the
+production handlers and the embedded SPA. It has a scenario per empty state
+(`full`, `warming`, `crds-missing`, `operator-idle`, `none`, `refused`) and is what
+the Playwright suite and the CI screenshots drive:
+
+```bash
+make web fixture-server
+./bin/fixture-server -scenario full -port 4173   # then open the URL it prints
+```
+
 ## Architecture
 
 ```
