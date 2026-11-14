@@ -1,5 +1,16 @@
 import { clsx, type ClassValue } from 'clsx'
-import { twMerge } from 'tailwind-merge'
+import { extendTailwindMerge } from 'tailwind-merge'
+
+/**
+ * The type scale tokens from DESIGN.md section 2. tailwind-merge does not know
+ * them, so without this it reads `text-kpi` as a text colour and drops it when a
+ * colour class such as `text-ink` follows: the KPI figure rendered at body size.
+ */
+export const FONT_SIZE_TOKENS = ['kpi', 'h1', 'h2', 'h3', 'body', 'table', 'small', 'caption', 'code']
+
+const twMerge = extendTailwindMerge({
+  extend: { classGroups: { 'font-size': [{ text: FONT_SIZE_TOKENS }] } },
+})
 
 /** Merges class names, letting a caller override a component's own utilities. */
 export function cn(...inputs: ClassValue[]) {
@@ -81,4 +92,27 @@ export async function copyText(text: string): Promise<boolean> {
       return false
     }
   }
+}
+
+/** "14:02" in the reader's own clock: the moment the stream was last known good. */
+export function clockTime(at: number): string {
+  return new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
+/**
+ * An incident with no -rN suffix is the first occurrence and reads r1; the suffix
+ * -r2 is the second, so a generation of 0 or 1 is r1 and N is rN.
+ */
+export function recurrenceLabel(generation: number): string {
+  return `r${Math.max(1, generation)}`
+}
+
+/** "12:41", or "1:02:09" past an hour. Text only: the countdown never animates. */
+export function countdown(msRemaining: number): string {
+  const total = Math.max(0, Math.floor(msRemaining / 1000))
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  const two = (n: number) => n.toString().padStart(2, '0')
+  return h > 0 ? `${h}:${two(m)}:${two(s)}` : `${m}:${two(s)}`
 }

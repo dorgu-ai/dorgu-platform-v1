@@ -57,6 +57,14 @@ web-lint: web-deps ## Lint the frontend
 web-typecheck: web-deps ## Typecheck the frontend
 	cd $(WEB) && npm run typecheck
 
+.PHONY: web-test
+web-test: web-deps ## Run the frontend unit and component tests (Vitest)
+	cd $(WEB) && npm test
+
+.PHONY: web-check-no-external
+web-check-no-external: ## Fail if the built SPA could request anything from the network
+	cd $(WEB) && node scripts/check-no-external.mjs
+
 .PHONY: web-dev
 web-dev: web-deps ## Run the Vite dev server against a dashboard on :7171
 	cd $(WEB) && npm run dev
@@ -105,10 +113,25 @@ test-race: ## Run the Go tests with the race detector
 cover: ## Report test coverage per package
 	go test -cover $(PKGS)
 
+.PHONY: fixture-server
+fixture-server: ## Build the fixture-backed dashboard server the end-to-end tests drive
+	go build -o bin/fixture-server ./hack/fixture-server
+
 ##@ Verification
 
 .PHONY: check
-check: fmt-check vet test-race web-typecheck web-lint ## Everything CI runs
+check: fmt-check vet test-race web-typecheck web-lint web-test ## Everything the first CI job runs
+
+.PHONY: e2e-build
+e2e-build: web fixture-server web-check-no-external ## Build what the end-to-end tests need
+
+.PHONY: e2e
+e2e: e2e-build ## Run the Playwright suite against fixture clusters (no Kubernetes needed)
+	cd $(WEB) && npx playwright test
+
+.PHONY: e2e-screenshots
+e2e-screenshots: e2e-build ## Capture a screenshot of every view in both themes into web/screenshots
+	cd $(WEB) && SCREENSHOTS=1 npx playwright test e2e/screenshots.spec.ts
 
 ##@ Packaging
 

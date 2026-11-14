@@ -143,7 +143,8 @@ func projectRemediation(
 		StrongestVerdict: strongestVerdict(steps),
 		GuardrailCount:   countGuardrails(steps),
 
-		DiffCommand: diffCommandFor(action),
+		DiffCommand:    diffCommandFor(action),
+		ApproveCommand: approveCommandFor(action),
 
 		ApprovedBy:         action.Status.ApprovedBy,
 		ApprovedAt:         action.Status.ApprovedAt,
@@ -352,6 +353,19 @@ func ownerInstructions(
 // It is the affordance this view offers in place of an approve button. The
 // dashboard is read-only in this release, and pointing at the tool that can act
 // is honest in a way a disabled control is not.
+// approveCommandFor is the CLI command that approves a plan awaiting a decision, or
+// "" for any other phase: there is nothing left to approve.
+func approveCommandFor(action *dorguv1.RemediationAction) string {
+	if action.Status.Phase != RemediationPending {
+		return ""
+	}
+	command := "dorgu remediation approve " + action.Name
+	if action.Namespace != "" {
+		command += " -n " + action.Namespace
+	}
+	return command
+}
+
 func diffCommandFor(action *dorguv1.RemediationAction) string {
 	command := "dorgu remediation diff " + action.Name
 	if action.Namespace != "" {

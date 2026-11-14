@@ -52,7 +52,16 @@ const (
 	NameDeployments = "deployments"
 	NamePods        = "pods"
 	NameNodes       = "nodes"
+	// NameActionEvents are the core/v1 Events about RemediationActions, where the
+	// CLI records the proposals it declined to apply. The Overview report counts
+	// them, so they are watched rather than left as "not read".
+	NameActionEvents = "action-events"
 )
+
+// actionEventSelector limits the Event watch to the ones the report reads. Without
+// it the informer would cache every Event in the cluster, which is the largest
+// and noisiest list a cluster has.
+const actionEventSelector = "involvedObject.kind=RemediationAction"
 
 // DefaultResync is how often the informers re-deliver their whole cache.
 //
@@ -92,6 +101,9 @@ type Options struct {
 // Set is the running collection of informers.
 type Set struct {
 	core coreinformers.SharedInformerFactory
+	// events is its own factory because a list option applies to every informer
+	// a factory builds, and only Events want the field selector.
+	events coreinformers.SharedInformerFactory
 	// scoped watches namespaced resources, honouring Options.Namespace.
 	scoped dynamicinformer.DynamicSharedInformerFactory
 	// clusterWide watches cluster-scoped resources. ClusterPersona is one, and
@@ -142,6 +154,12 @@ func New(clients kube.Clients, cache *store.Store, opts Options) (*Set, error) {
 			coreinformers.WithNamespace(namespace),
 			coreinformers.WithTransform(trimForCache),
 		),
+		events: coreinformers.NewSharedInformerFactoryWithOptions(clients.Kubernetes, resync,
+			coreinformers.WithNamespace(namespace),
+			coreinformers.WithTweakListOptions(func(o *metav1.ListOptions) {
+				o.FieldSelector = actionEventSelector
+			}),
+		),
 		scoped: dynamicinformer.NewFilteredDynamicSharedInformerFactory(
 			clients.Dynamic, resync, namespace, nil),
 		clusterWide: dynamicinformer.NewFilteredDynamicSharedInformerFactory(
@@ -186,6 +204,10 @@ func (s *Set) registerNative() {
 	nodes := s.core.Core().V1().Nodes().Informer()
 	s.add(NameNodes, nodes, nativeHandler[corev1.Node](
 		s.store.PutNode, s.store.DeleteNode, s.errorFor(NameNodes)))
+
+	events := s.events.Core().V1().Events().Informer()
+	s.add(NameActionEvents, events, nativeHandler[corev1.Event](
+		s.store.PutActionEvent, s.store.DeleteActionEvent, s.errorFor(NameActionEvents)))
 }
 
 // registerDorgu wires an informer per installed dorgu.io CRD and records which
@@ -271,6 +293,7 @@ func (s *Set) Start(ctx context.Context) error {
 	}
 
 	s.core.Start(ctx.Done())
+	s.events.Start(ctx.Done())
 	s.scoped.Start(ctx.Done())
 	s.clusterWide.Start(ctx.Done())
 

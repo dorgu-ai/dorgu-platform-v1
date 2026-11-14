@@ -714,3 +714,16 @@ func findChange(t *testing.T, changes []ResourceChange, path string) ResourceCha
 	t.Fatalf("no change for %q in %v", path, changePaths(changes))
 	return ResourceChange{}
 }
+
+func TestApproveCommandIsOnlyOfferedWhileAPlanIsPending(t *testing.T) {
+	pending := remediation("apps", "fix-oom")
+	assert.Equal(t, "dorgu remediation approve fix-oom -n apps", approveCommandFor(pending))
+
+	pending.Namespace = ""
+	assert.Equal(t, "dorgu remediation approve fix-oom", approveCommandFor(pending))
+
+	for _, phase := range []string{RemediationApproved, RemediationCompleted, RemediationExpired, RemediationRejected, RemediationFailed} {
+		done := remediation("apps", "fix-oom", func(r *dorguv1.RemediationAction) { r.Status.Phase = phase })
+		assert.Empty(t, approveCommandFor(done), phase)
+	}
+}

@@ -31,6 +31,8 @@ import (
 
 	"github.com/dorgu-ai/dorgu-platform-v1/internal/sse"
 	"github.com/dorgu-ai/dorgu-platform-v1/internal/store"
+	"github.com/dorgu-ai/dorgu-platform-v1/internal/view"
+	"github.com/dorgu-ai/dorgu-platform-v1/pkg/report"
 )
 
 // DefaultHeartbeat is how often an idle SSE stream emits a comment line.
@@ -138,6 +140,8 @@ func (s *Server) routes() http.Handler {
 	api.HandleFunc("GET /api/v1/apps", s.handleApps)
 	api.HandleFunc("GET /api/v1/incidents", s.handleIncidents)
 	api.HandleFunc("GET /api/v1/remediations", s.handleRemediations)
+	api.HandleFunc("GET /api/v1/memory", s.handleMemory)
+	api.HandleFunc("GET /api/v1/overview", s.handleOverview)
 	api.HandleFunc("GET /api/v1/cluster", s.handleCluster)
 	api.HandleFunc("GET /api/v1/meta", s.handleMeta)
 	api.HandleFunc("GET /api/v1/stream", s.handleStream)
@@ -162,6 +166,27 @@ func (s *Server) handleIncidents(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRemediations(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, r, s.cfg.Logger, http.StatusOK, s.cfg.Snapshots.Remediations())
+}
+
+func (s *Server) handleMemory(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, r, s.cfg.Logger, http.StatusOK, s.cfg.Snapshots.Memory())
+}
+
+// handleOverview serves the report for ?since=, defaulting to the live window.
+// A window that does not parse is a 400 that says what was wrong: silently
+// falling back to the default would show the user numbers for a window they did
+// not ask for, under a label that names the one they did.
+func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
+	since := view.DefaultOverviewWindow
+	if raw := r.URL.Query().Get("since"); raw != "" {
+		parsed, err := report.ParseWindow("since", raw)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		since = parsed
+	}
+	writeJSON(w, r, s.cfg.Logger, http.StatusOK, s.cfg.Snapshots.Overview(since))
 }
 
 func (s *Server) handleCluster(w http.ResponseWriter, r *http.Request) {
@@ -196,6 +221,10 @@ func (s *Server) EncodeTopic(topic store.Topic) ([]byte, bool) {
 		payload = s.cfg.Snapshots.Remediations()
 	case store.TopicCluster:
 		payload = s.cfg.Snapshots.Cluster()
+	case store.TopicMemory:
+		payload = s.cfg.Snapshots.Memory()
+	case store.TopicOverview:
+		payload = s.cfg.Snapshots.Overview(view.DefaultOverviewWindow)
 	case store.TopicMeta:
 		payload = s.meta()
 	default:
@@ -236,6 +265,8 @@ var StreamTopics = []store.Topic{
 	store.TopicIncidents,
 	store.TopicRemediations,
 	store.TopicCluster,
+	store.TopicMemory,
+	store.TopicOverview,
 }
 
 func writeJSON(w http.ResponseWriter, r *http.Request, logger *slog.Logger, status int, payload any) {

@@ -31,13 +31,13 @@ import { Tooltip } from './tooltip'
  * square baseline. The value is direct-labelled beside it in an ink token,
  * because text never wears the data colour.
  */
-export type MeterTone = 'ok' | 'warn' | 'danger' | 'info' | 'neutral'
+export type MeterTone = 'ok' | 'warn' | 'danger' | 'ink' | 'neutral'
 
 const fillColour: Record<MeterTone, string> = {
   ok: 'bg-ok',
   warn: 'bg-warn',
   danger: 'bg-danger',
-  info: 'bg-info',
+  ink: 'bg-ink',
   neutral: 'bg-ink-faint',
 }
 
@@ -45,7 +45,7 @@ const trackColour: Record<MeterTone, string> = {
   ok: 'bg-ok-soft',
   warn: 'bg-warn-soft',
   danger: 'bg-danger-soft',
-  info: 'bg-info-soft',
+  ink: 'bg-surface-sunken',
   neutral: 'bg-surface-sunken',
 }
 
@@ -55,7 +55,7 @@ export function Meter({
   percent,
   /** The number beside the bar. Never only in a tooltip. */
   value,
-  tone = 'info',
+  tone = 'ink',
   note,
   emphasis = false,
 }: {
@@ -72,8 +72,8 @@ export function Meter({
     <div className="flex min-w-0 items-center gap-3">
       <span
         className={cn(
-          'w-20 shrink-0 text-[11px]',
-          emphasis ? 'text-ink-muted' : 'text-ink-faint',
+          'w-20 shrink-0 text-small',
+          emphasis ? 'text-ink-muted' : 'text-ink-muted',
         )}
       >
         {label}
@@ -81,7 +81,7 @@ export function Meter({
 
       <Tooltip content={note}>
         <div
-          className="h-2 min-w-0 flex-1 cursor-default overflow-hidden rounded border border-line"
+          className="h-2 min-w-0 flex-1 cursor-default overflow-hidden rounded-pill border border-line"
           role="meter"
           aria-label={label}
           aria-valuenow={Math.round(percent)}
@@ -101,7 +101,7 @@ export function Meter({
         </div>
       </Tooltip>
 
-      <span className="w-44 shrink-0 text-right font-mono text-[11px] text-ink">{value}</span>
+      <span className="w-44 shrink-0 text-right font-mono text-small text-ink">{value}</span>
     </div>
   )
 }
@@ -122,16 +122,16 @@ export function MeterUnavailable({
 }) {
   return (
     <div className="flex min-w-0 items-start gap-3">
-      <span className="w-20 shrink-0 text-[11px] text-ink-faint">{label}</span>
+      <span className="w-20 shrink-0 text-small text-ink-muted">{label}</span>
       {/*
         The reason wraps rather than truncating. It is the whole content of this
         row, and a tooltip may enhance a value but must never be the only way to
         read one.
       */}
-      <span className="min-w-0 flex-1 text-[11px] leading-relaxed text-ink-muted italic">
+      <span className="min-w-0 flex-1 text-small leading-relaxed text-ink-muted italic">
         n/a ({reason})
       </span>
-      <span className="w-44 shrink-0 text-right font-mono text-[11px] text-ink-faint">n/a</span>
+      <span className="w-44 shrink-0 text-right font-mono text-small text-ink-muted">n/a</span>
     </div>
   )
 }
@@ -146,11 +146,13 @@ export function MeterUnavailable({
  * carries the label.
  */
 export function InlineMeter({
+  label,
   percent,
   value,
-  tone = 'info',
+  tone = 'ink',
   note,
 }: {
+  label: string
   percent: number
   value: string
   tone?: MeterTone
@@ -161,10 +163,11 @@ export function InlineMeter({
   return (
     <Tooltip content={note}>
       <div className="min-w-0 cursor-default space-y-1">
-        <span className="block truncate font-mono text-[11px] text-ink-muted">{value}</span>
+        <span className="block truncate font-mono text-small text-ink-muted">{value}</span>
         <div
-          className="h-1.5 overflow-hidden rounded border border-line"
+          className="h-1.5 overflow-hidden rounded-pill border border-line"
           role="meter"
+          aria-label={label}
           aria-valuenow={Math.round(percent)}
           aria-valuemin={0}
           aria-valuemax={100}

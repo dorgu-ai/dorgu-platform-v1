@@ -1,30 +1,20 @@
 import { useQuery } from '@tanstack/react-query'
+import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { createColumnHelper } from '@tanstack/react-table'
-import {
-  AlertCircle,
-  Bot,
-  ChevronDown,
-  ChevronRight,
-  Cog,
-  Hand,
-  Lock,
-  Terminal,
-  Zap,
-} from 'lucide-react'
-import { createContext, useCallback, useContext, useMemo, useState } from 'react'
+import { Bot, Cog, Hand, Lock, Zap } from 'lucide-react'
+import { useCallback, useMemo } from 'react'
 
-import { SummaryBar } from '@/components/app-shell'
-import { CopyCommand } from '@/components/copy-command'
+import { PageHeader, SummaryBar } from '@/components/app-shell'
 import { DataTable, type ColumnMeta } from '@/components/data-table'
 import { ViewEmptyState } from '@/components/empty-state'
-import { GatePanel } from '@/components/gate-panels'
-import { ResourceDiff } from '@/components/remediation-diff'
-import { StepSafetyBlock, VerdictBadge } from '@/components/remediation-safety'
-import { Dot, ManagedByBadge } from '@/components/status'
+import { ErrorState } from '@/components/error-state'
+import { ReviewPanel } from '@/components/review-panel'
+import { VerdictBadge } from '@/components/remediation-safety'
+import { ManagedByBadge } from '@/components/status'
 import { Badge, type BadgeTone } from '@/components/ui/badge'
 import { Tooltip } from '@/components/ui/tooltip'
-import { remediationsQuery } from '@/lib/api'
-import type { OwnerInstruction, Remediation, Step } from '@/lib/types'
+import { metaQuery, remediationsQuery } from '@/lib/api'
+import type { Remediation } from '@/lib/types'
 import { useFlash } from '@/lib/use-flash'
 import { absolute, age, confidencePercent } from '@/lib/utils'
 
@@ -50,36 +40,10 @@ import { absolute, age, confidencePercent } from '@/lib/utils'
 
 const column = createColumnHelper<Remediation>()
 
-/**
- * Which plans are expanded, and how to toggle one.
- *
- * This is a context rather than a parameter to the column factory, and the
- * reason is specific. TanStack Table renders a cell through `flexRender`, which
- * calls `createElement(cell)` when the cell is a function: a new arrow function
- * per render is a new component type at that position, so React unmounts and
- * remounts it. Rebuilding the columns whenever the expanded set changed
- * therefore remounted every cell of every visible row on every expand click,
- * not just the row that was clicked, tearing down any open tooltip elsewhere on
- * screen with it.
- *
- * With the state in a context the column definitions are a module-level
- * constant, so the cell functions keep their identity for the life of the page
- * and a toggle re-renders exactly the cells that read the context.
- */
-interface Expansion {
-  isExpanded: (id: string) => boolean
-  toggle: (id: string) => void
-}
-
-const ExpansionContext = createContext<Expansion>({
-  isExpanded: () => false,
-  toggle: () => {},
-})
-
 const phaseTone: Record<string, BadgeTone> = {
-  Pending: 'info',
-  Approved: 'info',
-  Ticketed: 'info',
+  Pending: 'neutral',
+  Approved: 'neutral',
+  Ticketed: 'neutral',
   Applying: 'warn',
   Verifying: 'warn',
   Completed: 'ok',
@@ -102,14 +66,7 @@ const phaseNote: Record<string, string> = {
   RolledBack: 'Applied, health degraded, and the change was reverted.',
   Failed: 'The operator could not apply this. It also trips a cooldown for the app.',
   Rejected: 'A human declined this plan.',
-  Expired: 'Terminal and nothing was applied. The reason is shown when the row is expanded.',
-}
-
-const riskTone: Record<string, BadgeTone> = {
-  low: 'ok',
-  medium: 'warn',
-  high: 'danger',
-  unknown: 'neutral',
+  Expired: 'Terminal and nothing was applied. The reason is shown when the proposal is opened.',
 }
 
 function remediationVersion(row: Remediation): string {
@@ -128,40 +85,27 @@ function remediationVersion(row: Remediation): string {
   ].join('|')
 }
 
-export function RemediationsView() {
+export function RemediationsView({ review }: { review?: string }) {
   const { data, error } = useQuery(remediationsQuery)
+  const identity = useQuery(metaQuery).data?.identity
+  const navigate = useNavigate()
   const remediations = useMemo(() => data?.remediations ?? [], [data])
   const flashed = useFlash(remediations, (row) => row.id, remediationVersion)
+  const reviewing = remediations.find((row) => row.id === review)
 
-  // Which plans are expanded. Kept here rather than in the row so it survives an
+  // The panel is addressed by the URL, so a review can be linked and survives an
   // SSE push: the server sends a whole new snapshot on every change, and state
-  // held in a row component would collapse the plan the reader was reading.
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
-  const toggle = useCallback((id: string) => {
-    setExpanded((current) => {
-      const next = new Set(current)
-      if (!next.delete(id)) next.add(id)
-      return next
-    })
-  }, [])
-
-  const expansion = useMemo<Expansion>(
-    () => ({ isExpanded: (id) => expanded.has(id), toggle }),
-    [expanded, toggle],
-  )
-
-  const rowDetail = useCallback(
-    (row: Remediation) => (expanded.has(row.id) ? <PlanDetail remediation={row} /> : null),
-    [expanded],
-  )
+  // held in a component would be lost with it.
+  const close = useCallback(() => {
+    void navigate({ to: '/remediations', search: {}, replace: true })
+  }, [navigate])
 
   if (error) {
     return (
-      <div className="flex flex-col items-center gap-2 px-6 py-16 text-center">
-        <AlertCircle className="size-6 text-danger" />
-        <h3 className="text-sm font-semibold text-ink">Could not read the Remediations view</h3>
-        <p className="max-w-lg text-xs text-ink-muted">{error.message}</p>
-      </div>
+      <>
+        <PageHeader title="Proposals and actions" />
+        <ErrorState title="Could not read the Proposals view" error={error} />
+      </>
     )
   }
 
@@ -175,11 +119,15 @@ export function RemediationsView() {
   )
 
   return (
-    <ExpansionContext.Provider value={expansion}>
+    <>
+      <PageHeader
+        title="Proposals and actions"
+        description="What Dorgu proposed, what the gate decided and what happened next. Open a proposal to review it: this screen is read-only and approving arrives in a later release."
+      />
       <SummaryBar
         items={[
           { label: 'plans', value: summary?.total ?? 0 },
-          { label: 'pending', value: summary?.pending ?? 0, tone: 'info' },
+          { label: 'pending', value: summary?.pending ?? 0, tone: 'neutral' },
           { label: 'appliable', value: summary?.appliable ?? 0, tone: 'ok' },
           { label: 'advisory', value: summary?.advisory ?? 0, tone: 'warn' },
           ...(summary && summary.guarded > 0
@@ -196,7 +144,7 @@ export function RemediationsView() {
                 {
                   label: 'owned workload',
                   value: summary.owned,
-                  tone: 'info' as const,
+                  tone: 'neutral' as const,
                 },
               ]
             : []),
@@ -213,12 +161,12 @@ export function RemediationsView() {
         trailing={
           <div className="flex items-center gap-3">
             {data?.truncation && (
-              <span className="text-[11px] text-warn">
+              <span className="text-small text-warn">
                 Showing {data.truncation.shown} of {data.truncation.total}.
               </span>
             )}
             <Tooltip content="This screen cannot approve or apply anything. Every endpoint behind it is a read, and the dashboard writes nothing to your cluster in this release. Each plan carries the CLI command that can act on it.">
-              <span className="flex cursor-default items-center gap-1 text-[11px] text-ink-faint">
+              <span className="flex cursor-default items-center gap-1 text-small text-ink-muted">
                 <Lock className="size-3" />
                 no approve here
               </span>
@@ -227,20 +175,21 @@ export function RemediationsView() {
         }
       />
       <DataTable
-        ariaLabel="Remediations"
+        ariaLabel="Proposals"
         columns={columns}
         data={remediations}
         emptyState={empty}
         flashedIds={flashed}
-        // The plan renders below the row's cells at the full width of the table,
-        // not inside the first column: a tall cell would drag the phase badge and
-        // every other column to the vertical centre of the whole plan.
-        rowDetail={rowDetail}
-        // Tall enough for a collapsed row; the virtualiser measures the expanded
-        // ones, which is why the plan can be any height without the list jumping.
+        selectedId={review}
         estimatedRowHeight={64}
       />
-    </ExpansionContext.Provider>
+      {review && !reviewing && data && (
+        <p className="px-6 py-2 text-small text-warn" role="status">
+          The proposal {review} is not in this list. It may have been deleted or be outside the shown window.
+        </p>
+      )}
+      {reviewing && <ReviewPanel remediation={reviewing} identity={identity} onClose={close} />}
+    </>
   )
 }
 
@@ -293,47 +242,30 @@ const columns = [
     meta: { width: '5rem', numeric: true } satisfies ColumnMeta,
     cell: ({ row }) => (
       <Tooltip content={`Proposed ${absolute(row.original.createdAt)}`}>
-        <span className="cursor-default text-ink-faint">{age(row.original.createdAt)}</span>
+        <span className="cursor-default text-ink-muted">{age(row.original.createdAt)}</span>
       </Tooltip>
     ),
   }),
 ]
 
-/**
- * The plan's name, and the disclosure that opens it.
- *
- * The whole plan is already in the payload, so opening a row costs no request:
- * a remediation is a handful of steps and the cache holds all of it.
- */
+/** The plan's name, which opens the review panel. */
 function PlanCell({ remediation }: { remediation: Remediation }) {
-  // Read from context rather than from a prop baked into the column factory. See
-  // ExpansionContext: a column list rebuilt on every toggle gives every cell a
-  // new function identity, and React remounts the whole visible table.
-  const { isExpanded, toggle } = useContext(ExpansionContext)
-  const expanded = isExpanded(remediation.id)
-
   return (
     <div className="min-w-0">
-      <button
-        type="button"
-        onClick={() => toggle(remediation.id)}
-        aria-expanded={expanded}
-        className="flex w-full min-w-0 items-center gap-1 text-left hover:text-ink"
+      <Link
+        to="/remediations"
+        search={{ review: remediation.id }}
+        aria-label={`Review ${remediation.name}`}
+        className="block truncate rounded-pill font-mono text-ink hover:underline"
       >
-        {expanded ? (
-          <ChevronDown className="size-3 shrink-0 text-ink-faint" aria-hidden="true" />
-        ) : (
-          <ChevronRight className="size-3 shrink-0 text-ink-faint" aria-hidden="true" />
-        )}
-        <span className="truncate font-mono text-ink">{remediation.name}</span>
-      </button>
-      <div className="flex min-w-0 items-center gap-1.5 pl-4">
-        <span className="truncate text-[11px] text-ink-faint">
+        {remediation.name}
+      </Link>
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span className="truncate text-small text-ink-muted">
           {remediation.namespace}/{remediation.persona.name}
         </span>
-        <span className="shrink-0 text-[11px] text-ink-faint">
-          {remediation.steps.length} step
-          {remediation.steps.length === 1 ? '' : 's'}
+        <span className="shrink-0 text-small text-ink-muted">
+          {remediation.steps.length} step{remediation.steps.length === 1 ? '' : 's'}
         </span>
       </div>
     </div>
@@ -355,13 +287,13 @@ function PhaseCell({ remediation }: { remediation: Remediation }) {
         changed in the cluster.
       */}
       {remediation.phase === 'Acknowledged' && (
-        <div className="truncate text-[10px] text-warn">nothing was applied</div>
+        <div className="truncate text-caption text-warn">nothing was applied</div>
       )}
       {remediation.expired && (
-        <div className="truncate text-[10px] text-ink-faint">{remediation.expired.reason}</div>
+        <div className="truncate text-caption text-ink-muted">{remediation.expired.reason}</div>
       )}
       {remediation.verificationResult && (
-        <div className="truncate text-[10px] text-ink-faint">
+        <div className="truncate text-caption text-ink-muted">
           verified {remediation.verificationResult.toLowerCase()}
         </div>
       )}
@@ -393,12 +325,12 @@ function AppliesCell({ remediation }: { remediation: Remediation }) {
     return (
       <div className="min-w-0 space-y-0.5">
         <Tooltip content={remediation.appliableBlockedBy}>
-          <Badge tone="info" className="cursor-default">
+          <Badge tone="neutral" className="cursor-default">
             <Zap className="size-3" />
             persona only
           </Badge>
         </Tooltip>
-        <div className="truncate text-[10px] text-ink-faint">not the Deployment</div>
+        <div className="truncate text-caption text-ink-muted">not the Deployment</div>
       </div>
     )
   }
@@ -415,7 +347,7 @@ function AppliesCell({ remediation }: { remediation: Remediation }) {
 
 function GuardrailCell({ remediation }: { remediation: Remediation }) {
   if (!remediation.strongestVerdict) {
-    return <span className="text-ink-faint">none</span>
+    return <span className="text-ink-muted">none</span>
   }
   return <VerdictBadge verdict={remediation.strongestVerdict} count={remediation.guardrailCount} />
 }
@@ -425,14 +357,14 @@ function OwnerCell({ remediation }: { remediation: Remediation }) {
   if (!workload) {
     return (
       <Tooltip content="Dorgu has no record of the live workload behind this plan, so it cannot tell what owns it. No record is treated as owned, because absence of evidence that patching is safe is not evidence that it is.">
-        <span className="cursor-default text-ink-faint italic">no record</span>
+        <span className="cursor-default text-ink-muted italic">no record</span>
       </Tooltip>
     )
   }
   return (
     <div className="min-w-0 space-y-0.5">
       <ManagedByBadge managedBy={workload.managedBy} detail={workload.managedByDetail} />
-      <div className="truncate font-mono text-[10px] text-ink-faint">{workload.name}</div>
+      <div className="truncate font-mono text-caption text-ink-muted">{workload.name}</div>
     </div>
   )
 }
@@ -463,7 +395,7 @@ function ConfidenceCell({ remediation }: { remediation: Remediation }) {
             : `Planned by ${remediation.planSource || 'the rule engine'}, which is deterministic code rather than a model.`
         }
       >
-        <span className="flex min-w-0 cursor-default items-center gap-1 text-[11px] text-ink-faint">
+        <span className="flex min-w-0 cursor-default items-center gap-1 text-small text-ink-muted">
           {remediation.aiPlanned ? <Bot className="size-3" /> : <Cog className="size-3" />}
           <span className="truncate">{remediation.planSource || 'rule-based'}</span>
         </span>
@@ -476,261 +408,7 @@ function ConfidenceCell({ remediation }: { remediation: Remediation }) {
 // the expanded plan
 // ---------------------------------------------------------------------------
 
-function PlanDetail({ remediation }: { remediation: Remediation }) {
-  const workload = remediation.workload
-
-  return (
-    <div className="mt-3 mb-1 space-y-3 border-l-2 border-line-strong pl-3">
-      {/* What happens to the running container. The hero, so it goes first. */}
-      {(remediation.workloadChanges?.length ?? 0) > 0 && (
-        <ResourceDiff
-          changes={remediation.workloadChanges ?? []}
-          title="Deployment change"
-          subtitle={
-            workload
-              ? `${workload.namespace}/${workload.name}${workload.container ? ` (${workload.container})` : ''}`
-              : undefined
-          }
-          unobserved={workload ? !workload.observed : true}
-        />
-      )}
-
-      {remediation.planSummary && (
-        <Prose
-          heading="Plan summary"
-          text={remediation.planSummary}
-          attributed={remediation.aiPlanned}
-        />
-      )}
-      {remediation.explanation && (
-        <Prose
-          heading="Explanation"
-          text={remediation.explanation}
-          attributed={remediation.aiPlanned}
-        />
-      )}
-
-      <div>
-        <h4 className="text-[11px] font-semibold tracking-wide text-ink uppercase">
-          Plan ({remediation.steps.length} step
-          {remediation.steps.length === 1 ? '' : 's'})
-        </h4>
-        <ol className="mt-1.5 space-y-2.5">
-          {remediation.steps.map((step) => (
-            <StepRow
-              key={`${step.order}-${step.id}`}
-              step={step}
-              aiPlanned={remediation.aiPlanned}
-            />
-          ))}
-        </ol>
-      </div>
-
-      <GatePanel remediation={remediation} />
-
-      {workload?.owned && <OwnedWorkloadPanel remediation={remediation} />}
-
-      <div className="flex flex-wrap items-center gap-2 pt-0.5">
-        <span className="text-[11px] text-ink-faint">
-          <Terminal className="mr-1 inline size-3" aria-hidden="true" />
-          Act on this plan with the CLI:
-        </span>
-        <CopyCommand command={remediation.diffCommand} />
-      </div>
-    </div>
-  )
-}
-
-/**
- * Prose from the plan.
- *
- * Rendered as attributed italic paragraph text when a model wrote it, which is
- * what makes the bordered monospace guardrail panel below read as a different
- * kind of statement rather than as a different colour.
- */
-function Prose({
-  heading,
-  text,
-  attributed,
-}: {
-  heading: string
-  text: string
-  attributed: boolean
-}) {
-  return (
-    <div className="min-w-0">
-      <h4 className="text-[11px] font-semibold tracking-wide text-ink uppercase">
-        {heading}
-        {attributed && (
-          <Tooltip content="Written by the model that planned this. It is reasoning, not measurement. Anything Dorgu computed appears in the guardrail panels below, which look different for that reason.">
-            <span className="ml-1.5 cursor-default font-normal text-ink-faint normal-case">
-              <Bot className="mr-0.5 inline size-3" aria-hidden="true" />
-              model prose
-            </span>
-          </Tooltip>
-        )}
-      </h4>
-      <p
-        className={
-          attributed
-            ? 'mt-0.5 max-w-3xl text-[11px] leading-relaxed whitespace-pre-line text-ink-muted italic'
-            : 'mt-0.5 max-w-3xl text-[11px] leading-relaxed whitespace-pre-line text-ink-muted'
-        }
-      >
-        {text}
-      </p>
-    </div>
-  )
-}
-
-function StepRow({ step, aiPlanned }: { step: Step; aiPlanned: boolean }) {
-  return (
-    <li className="min-w-0 space-y-1.5">
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-        <span className="font-mono text-[11px] text-ink-faint">[{step.order}]</span>
-        <span className="font-mono text-[11px] text-ink">{step.type}</span>
-
-        <Tooltip
-          content={
-            step.risk === 'unknown'
-              ? 'The plan recorded no risk for this step. Unknown is not low: an unassessed change to a running workload is not a safe one, and this is the cheapest possible place to guess wrong.'
-              : `The plan assessed this step as ${step.risk} risk.`
-          }
-        >
-          <Badge tone={riskTone[step.risk] ?? 'neutral'} className="cursor-default">
-            {step.risk} risk
-          </Badge>
-        </Tooltip>
-
-        <Tooltip
-          content={
-            step.mode === 'auto'
-              ? 'The operator may apply this step itself. Only a persona-update step can be auto-executable: the operator never writes a workload.'
-              : 'Advisory. Recorded for a human, the CLI or a platform to apply. Nothing happens until somebody does it.'
-          }
-        >
-          <Badge tone={step.mode === 'auto' ? 'ok' : 'warn'} className="cursor-default">
-            {step.mode}
-          </Badge>
-        </Tooltip>
-
-        {step.status?.phase && (
-          <Badge tone={step.status.phase === 'Failed' ? 'danger' : 'neutral'}>
-            {step.status.phase}
-          </Badge>
-        )}
-      </div>
-
-      <p className="max-w-3xl text-[11px] leading-relaxed text-ink">{step.description}</p>
-
-      {step.rationale && (
-        <p
-          className={
-            aiPlanned
-              ? 'max-w-3xl text-[11px] leading-relaxed text-ink-muted italic'
-              : 'max-w-3xl text-[11px] leading-relaxed text-ink-muted'
-          }
-        >
-          {step.rationale}
-        </p>
-      )}
-
-      {/*
-        Dorgu's arithmetic, in its own panel, after any prose a model may have
-        authored and before the diff that reflects it. The diff below is the
-        outcome of the verdict rather than more of it.
-      */}
-      {(step.safety?.length ?? 0) > 0 && <StepSafetyBlock entries={step.safety ?? []} />}
-
-      {(step.patchChanges?.length ?? 0) > 0 && (
-        <ResourceDiff
-          changes={step.patchChanges ?? []}
-          title="ApplicationPersona change"
-          subtitle="what Dorgu records, not what runs"
-          subject="persona"
-        />
-      )}
-
-      {step.command && (
-        <div className="flex flex-wrap items-center gap-2">
-          <CopyCommand command={step.command} label="Run" />
-        </div>
-      )}
-      {/*
-        A command the object carried and this screen will not offer. Saying why
-        beats dropping it silently: a reader who saw it in `kubectl get -o yaml`
-        would otherwise think this screen lost it.
-      */}
-      {step.commandWithheld && (
-        <p className="flex max-w-3xl items-start gap-1.5 text-[11px] leading-relaxed text-warn">
-          <Lock className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
-          {step.commandWithheld}
-        </p>
-      )}
-    </li>
-  )
-}
-
-/**
- * The trust moment, for a workload Dorgu will not patch.
- *
- * It names the owner, says in one line what would have gone wrong, and hands over
- * the change to make and where to make it. The reader here is the one who types
- * the number into a values file or a Git repo, somewhere Dorgu will never see, so
- * this is the last screen before a decision Dorgu cannot check.
- */
-function OwnedWorkloadPanel({ remediation }: { remediation: Remediation }) {
-  const workload = remediation.workload
-  if (!workload) return null
-
-  return (
-    <section className="max-w-3xl rounded-md border border-info/40 bg-info-soft/40 px-2.5 py-2">
-      <h4 className="flex items-center gap-1.5 text-[11px] font-semibold text-ink">
-        <Dot tone="info" />
-        Advisory only: Dorgu will not patch this Deployment
-      </h4>
-      <p className="mt-1 text-[11px] leading-relaxed text-ink-muted">
-        {workload.ownerName} owns it. {workload.whyNotPatched} No step of this plan is
-        auto-executable; approving it records the decision and changes nothing in the cluster.
-        {workload.ownershipSource === 'gate'
-          ? ' Ownership is as resolved by the operator from the live Deployment.'
-          : ' Ownership is as written in the plan; the operator’s gate has not recorded one.'}
-      </p>
-
-      {(remediation.ownerInstructions?.length ?? 0) > 0 && (
-        <>
-          <p className="mt-2 text-[11px] font-medium text-ink">
-            Apply it where this workload’s desired state lives:
-          </p>
-          <ol className="mt-1 space-y-1.5">
-            {(remediation.ownerInstructions ?? []).map((instruction) => (
-              <InstructionRow key={instruction.order} instruction={instruction} />
-            ))}
-          </ol>
-        </>
-      )}
-    </section>
-  )
-}
-
-function InstructionRow({ instruction }: { instruction: OwnerInstruction }) {
-  return (
-    <li className="min-w-0 space-y-1">
-      <div className="flex min-w-0 gap-1.5 text-[11px] leading-relaxed text-ink-muted">
-        <span className="shrink-0 font-mono text-ink-faint">[{instruction.order}]</span>
-        <span>{instruction.description}</span>
-      </div>
-      {/*
-        Only read-only commands survive the filters on an owned workload, and
-        those are worth having: reading is the whole of what Dorgu can still hand
-        over here, and `kubectl logs` matters most on exactly the workloads it
-        will not patch.
-      */}
-      {instruction.command && (
-        <div className="pl-5">
-          <CopyCommand command={instruction.command} label="Run" />
-        </div>
-      )}
-    </li>
-  )
+export function RemediationsRoute() {
+  const { review } = useSearch({ strict: false })
+  return <RemediationsView review={review} />
 }

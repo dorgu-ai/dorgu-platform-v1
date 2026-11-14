@@ -527,6 +527,7 @@ export interface Remediation {
   ownerInstructions?: OwnerInstruction[]
   /** The CLI command that shows this plan in a terminal. */
   diffCommand: string
+  approveCommand?: string
   rollback?: RemediationRollback
   approvalRequired: boolean
   approvalDeadline?: string
@@ -741,11 +742,28 @@ export interface Meta {
   operatorInstalled: boolean
   synced: boolean
   streamClients: number
+  operator: OperatorStatus
   views: ViewStatus[]
 }
 
+/** What the cluster's Deployments say about the operator itself. */
+export interface OperatorStatus {
+  found: boolean
+  desired: number
+  ready: number
+  version: string | null
+}
+
 /** The SSE event names, which are also the REST resource names. */
-export const TOPICS = ['meta', 'apps', 'incidents', 'remediations', 'cluster'] as const
+export const TOPICS = [
+  'meta',
+  'apps',
+  'incidents',
+  'remediations',
+  'cluster',
+  'memory',
+  'overview',
+] as const
 export type Topic = (typeof TOPICS)[number]
 
 /** Maps a topic to the payload the server pushes under it. */
@@ -755,4 +773,172 @@ export interface TopicPayloads {
   incidents: IncidentsPayload
   remediations: RemediationsPayload
   cluster: ClusterPayload
+}
+
+
+// ---------------------------------------------------------------------------
+// Memory
+// ---------------------------------------------------------------------------
+
+export interface MemoryCondition {
+  type: string
+  status: string
+  reason?: string
+  message?: string
+  lastTransitionTime?: string
+}
+
+/** An IncidentMemory with its conditions. The Incident fields are the same projection the feed uses. */
+export interface MemoryRecord extends Incident {
+  conditions: MemoryCondition[]
+  resolutionDuration?: string
+}
+
+export interface MemorySummary {
+  total: number
+  resolved: number
+  open: number
+  refused: number
+  withRootCause: number
+}
+
+export interface MemoryPayload {
+  memories: MemoryRecord[]
+  summary: MemorySummary
+  readiness: Readiness
+  truncation?: TruncationNotice
+}
+
+// ---------------------------------------------------------------------------
+// Overview: the report from pkg/report, as `dorgu report --json` prints it
+// ---------------------------------------------------------------------------
+
+export interface ReportWindow {
+  since: string
+  start: string
+  end: string
+}
+
+export interface ReportSource {
+  ok: boolean
+  count: number
+  error?: string
+}
+
+export interface ReportInputError {
+  input: string
+  error: string
+}
+
+export interface ReportHeal {
+  total: number
+  completed: number
+  clean: number | null
+  safe_heals: number | null
+  no_data: boolean
+  reason?: string
+  excluded: Record<string, number>
+  heal_not_credited_by_reason: Record<string, number>
+}
+
+export interface ReportDistribution {
+  n: number
+  p50_seconds: number | null
+  p90_seconds: number | null
+  no_data: boolean
+  reason?: string
+}
+
+export interface ReportRefusal {
+  phase: string
+  stage: string
+  reason: string
+  count: number
+  share_of_proposals: number | null
+  flagged: boolean
+}
+
+export interface ReportDoc {
+  schema: string
+  generated_at: string
+  window: ReportWindow
+  cluster: {
+    context: string
+    namespace: string
+    operator_version: string | null
+    application_personas: number | null
+    self_healing_modes: string[]
+  }
+  sources: {
+    remediation_actions: ReportSource
+    incidents: ReportSource
+    personas: ReportSource
+    cluster_personas: ReportSource
+    events: ReportSource
+  }
+  input_errors: ReportInputError[]
+  heal_accounting: ReportHeal
+  tier_a: {
+    ns_safe_heals: { safe_heals: number | null; clean_heals: number | null; no_data: boolean; reason?: string }
+    a2_active_cluster: { active: boolean; proposals_decided: number }
+    a5_review_depth: {
+      proposals_decided: number
+      window_days: number
+      per_week: number | null
+      no_data: boolean
+    }
+    a6_approval_rate: {
+      approved: number
+      rejected: number
+      rate: number | null
+      no_data: boolean
+      too_few_decisions: boolean
+      band?: 'below' | 'in' | 'above'
+    }
+    a7_external_agent_share: { no_data: boolean; reason: string }
+    decisions: { approved: number; rejected: number }
+    notes: string[]
+  }
+  tier_q: {
+    q1_time_to_heal: {
+      detect_to_proposal: ReportDistribution
+      proposal_to_decision: ReportDistribution
+      decision_to_applied: ReportDistribution
+      applied_to_verified: ReportDistribution
+    }
+    q2_proposal_precision: {
+      decided: number
+      wrong: number
+      rate: number | null
+      no_data: boolean
+      too_few_decisions: boolean
+      rejections_by_reason: Record<string, number>
+    }
+    q3_llm_efficiency: { no_data: boolean; reason: string; plan_sources: Record<string, number> }
+    q6_refusal_mix: {
+      proposals: number
+      no_data: boolean
+      reason?: string
+      rows: ReportRefusal[]
+      deferred_proposals: number | null
+      deferred_note: string
+    }
+  }
+  first_run_clamps: {
+    proposals_with_clamp: number
+    step_verdicts: Record<string, number>
+    clamps_by_rule: Record<string, number>
+    gate_clamps_by_guardrail: Record<string, number>
+    no_data: boolean
+  }
+  cli_declines: { no_data: boolean; reason?: string; by_reason: Record<string, number>; note: string }
+  not_measurable: { id: string; name: string; reason: string }[]
+}
+
+export interface OverviewPayload {
+  /** Null when the report cannot be computed: no RemediationActions to compute it from. */
+  report: ReportDoc | null
+  window: string
+  readiness: Readiness
+  operator: OperatorStatus
 }

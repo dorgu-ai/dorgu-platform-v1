@@ -15,6 +15,17 @@ import { TOPICS } from './types'
 export type StreamState = 'connecting' | 'live' | 'offline'
 
 /**
+ * The stream state plus when the stream was last known good. `lastLiveAt` is what
+ * lets the top bar say "Stale since 14:02" instead of only "stale": a reader needs
+ * to know how old what is on screen is.
+ */
+export interface StreamStatus {
+  state: StreamState
+  /** Epoch milliseconds of the last moment the stream was live, undefined if it never was. */
+  lastLiveAt?: number
+}
+
+/**
  * useEventStream opens the one SSE connection the app has and feeds each pushed
  * snapshot straight into the Query cache.
  *
@@ -32,12 +43,21 @@ export type StreamState = 'connecting' | 'live' | 'offline'
  * VPN that dropped and a dashboard process that restarted all recover without
  * anything asked of the user. If a reload is ever needed, this wiring is broken.
  */
-export function useEventStream(): StreamState {
+export function useEventStream(): StreamStatus {
   const queryClient = useQueryClient()
-  const [state, setState] = useState<StreamState>('connecting')
+  const [state, setStateRaw] = useState<StreamState>('connecting')
+  const [lastLiveAt, setLastLiveAt] = useState<number | undefined>(undefined)
 
   useEffect(() => {
     const source = new EventSource(`${API_BASE}/stream`)
+
+    // Every transition goes through here so the moment a live stream drops is kept.
+    let wasLive = false
+    const setState = (next: StreamState) => {
+      if (wasLive && next !== 'live') setLastLiveAt(Date.now())
+      wasLive = next === 'live'
+      setStateRaw(next)
+    }
 
     const listeners = TOPICS.map((topic) => {
       const handler = (event: MessageEvent<string>) => {
@@ -71,5 +91,5 @@ export function useEventStream(): StreamState {
     }
   }, [queryClient])
 
-  return state
+  return { state, lastLiveAt }
 }

@@ -7,7 +7,8 @@ import { CopyCommand } from '@/components/copy-command'
 import { DataTable, type ColumnMeta } from '@/components/data-table'
 import { ViewEmptyState } from '@/components/empty-state'
 import { HealthBadge, ManagedByBadge } from '@/components/status'
-import { SummaryBar } from '@/components/app-shell'
+import { PageHeader, SummaryBar } from '@/components/app-shell'
+import { ErrorState } from '@/components/error-state'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip } from '@/components/ui/tooltip'
 import { appsQuery } from '@/lib/api'
@@ -100,7 +101,7 @@ const columns = [
     header: 'Age',
     meta: { width: '4rem', numeric: true } satisfies ColumnMeta,
     cell: ({ row }) => (
-      <span className="text-ink-faint" title={absolute(row.original.createdAt)}>
+      <span className="text-ink-muted" title={absolute(row.original.createdAt)}>
         {age(row.original.createdAt)}
       </span>
     ),
@@ -130,17 +131,26 @@ export function AppsView() {
   )
 
   if (error) {
-    return <LoadError message={error.message} />
+    return (
+      <>
+        <PageHeader title="Apps" />
+        <ErrorState title="Could not read the Apps view" error={error} />
+      </>
+    )
   }
 
   const summary = data?.summary
 
   return (
     <>
+      <PageHeader
+        title="Apps"
+        description="Your ApplicationPersonas and the Deployments nothing is watching, with health, owner and the live resource block."
+      />
       <SummaryBar
         items={[
           { label: 'apps', value: summary?.total ?? 0 },
-          { label: 'watched', value: summary?.monitored ?? 0, tone: 'info' },
+          { label: 'watched', value: summary?.monitored ?? 0, tone: 'neutral' },
           { label: 'unwatched', value: summary?.unmonitored ?? 0, tone: 'warn' },
           { label: 'unhealthy', value: summary?.unhealthy ?? 0, tone: 'danger' },
           { label: 'degraded', value: summary?.degraded ?? 0, tone: 'warn' },
@@ -179,9 +189,9 @@ function AppNameCell({ app }: { app: App }) {
           </Badge>
         )}
       </div>
-      <div className="truncate font-mono text-[11px] text-ink-faint">
+      <div className="truncate font-mono text-small text-ink-muted">
         {app.namespace}
-        {app.type && <span className="ml-1.5 text-ink-faint">{app.type}</span>}
+        {app.type && <span className="ml-1.5 text-ink-muted">{app.type}</span>}
         {/* The persona's spec.name is what the match chain resolves by, and it is
             often not the object name. Showing both is how a reader can follow
             the link from persona to Deployment. */}
@@ -205,7 +215,7 @@ function WatchedCell({ app }: { app: App }) {
   if (app.monitored) {
     return (
       <div className="flex items-center gap-1.5">
-        <Badge tone="info">
+        <Badge tone="neutral">
           <Eye className="size-3" />
           persona
         </Badge>
@@ -230,10 +240,10 @@ function OwnerCell({ app }: { app: App }) {
       {app.workload ? (
         <ManagedByBadge managedBy={app.workload.managedBy} detail={app.workload.managedByDetail} />
       ) : (
-        <span className="text-ink-faint">no workload</span>
+        <span className="text-ink-muted">no workload</span>
       )}
       {app.ownership?.team && (
-        <div className="truncate text-[11px] text-ink-muted">{app.ownership.team}</div>
+        <div className="truncate text-small text-ink-muted">{app.ownership.team}</div>
       )}
     </div>
   )
@@ -267,17 +277,17 @@ function WorkloadCell({ app }: { app: App }) {
             : `Container inspected: ${workload.container ?? 'none'}.`
         }
       >
-        <span className="cursor-default truncate font-mono text-[11px] text-ink">
+        <span className="cursor-default truncate font-mono text-small text-ink">
           {workload.name}
         </span>
       </Tooltip>
-      <div className="flex items-center gap-2 text-[11px]">
-        <span className={short ? 'text-ink-faint' : 'text-warn'}>
+      <div className="flex items-center gap-2 text-small">
+        <span className={short ? 'text-ink-muted' : 'text-warn'}>
           {replicas.ready}/{replicas.desired}
         </span>
         {image && (
           <Tooltip content={workload.image}>
-            <span className="cursor-default truncate font-mono text-ink-faint">{image}</span>
+            <span className="cursor-default truncate font-mono text-ink-muted">{image}</span>
           </Tooltip>
         )}
       </div>
@@ -311,9 +321,9 @@ function ResourcesCell({ app }: { app: App }) {
             )
             .join('\n')}
         >
-          <span className="cursor-default font-mono text-[11px] text-danger">
+          <span className="cursor-default font-mono text-small text-danger">
             {first?.reason}
-            {issues.length > 1 && <span className="text-ink-faint"> +{issues.length - 1}</span>}
+            {issues.length > 1 && <span className="text-ink-muted"> +{issues.length - 1}</span>}
           </span>
         </Tooltip>
         {observed && <ResourceLines observed={observed} />}
@@ -324,7 +334,7 @@ function ResourcesCell({ app }: { app: App }) {
   if (!observed) {
     return (
       <Tooltip content="This container sets no CPU or memory requests or limits. Dorgu will not introduce a key the workload does not already have.">
-        <span className="cursor-default text-ink-faint">none set</span>
+        <span className="cursor-default text-ink-muted">none set</span>
       </Tooltip>
     )
   }
@@ -337,17 +347,17 @@ function ResourceLines({ observed }: { observed: NonNullable<App['workload']>['o
   const requests = resourceLine(observed?.requests)
 
   return (
-    <div className="font-mono text-[11px] leading-4">
+    <div className="font-mono text-small leading-4">
       {/* An unset key reads as "none", not as a dash. It is a fact worth
           stating in words: a remediation may only change a key the workload
           already has. */}
       <div className="truncate text-ink-muted">
-        <span className="text-ink-faint">lim</span>{' '}
-        {limits || <span className="text-ink-faint">none</span>}
+        <span className="text-ink-muted">lim</span>{' '}
+        {limits || <span className="text-ink-muted">none</span>}
       </div>
       <div className="truncate text-ink-muted">
-        <span className="text-ink-faint">req</span>{' '}
-        {requests || <span className="text-ink-faint">none</span>}
+        <span className="text-ink-muted">req</span>{' '}
+        {requests || <span className="text-ink-muted">none</span>}
       </div>
     </div>
   )
@@ -364,7 +374,7 @@ function IncidentsCell({ app }: { app: App }) {
   const { open, critical, personaReported } = app.incidents
   const mismatch = personaReported !== open
 
-  const tone = critical > 0 ? 'text-danger' : open > 0 ? 'text-warn' : 'text-ink-faint'
+  const tone = critical > 0 ? 'text-danger' : open > 0 ? 'text-warn' : 'text-ink-muted'
 
   return (
     <Tooltip
@@ -378,7 +388,7 @@ function IncidentsCell({ app }: { app: App }) {
     >
       <span className={`cursor-default font-semibold ${tone}`}>
         {open}
-        {mismatch && <span className="ml-0.5 align-super text-[9px] text-ink-faint">*</span>}
+        {mismatch && <span className="ml-0.5 align-super text-caption text-ink-muted">*</span>}
       </span>
     </Tooltip>
   )
@@ -388,27 +398,17 @@ function ImportPrompt({ namespaces, count }: { namespaces: string[]; count: numb
   const first = namespaces[0]
   return (
     <div className="flex items-center gap-2">
-      <span className="text-[11px] text-warn">
+      <span className="text-small text-warn">
         {count} Deployment{count === 1 ? '' : 's'} Dorgu is not watching
       </span>
       {first && <CopyCommand command={`dorgu persona import -n ${first} --all`} />}
       {namespaces.length > 1 && (
         <Tooltip content={`Also uncovered in: ${namespaces.slice(1).join(', ')}`}>
-          <span className="cursor-default text-[11px] text-ink-faint">
+          <span className="cursor-default text-small text-ink-muted">
             +{namespaces.length - 1} more namespace{namespaces.length === 2 ? '' : 's'}
           </span>
         </Tooltip>
       )}
-    </div>
-  )
-}
-
-function LoadError({ message }: { message: string }) {
-  return (
-    <div className="flex flex-col items-center gap-2 px-6 py-16 text-center">
-      <AlertCircle className="size-6 text-danger" />
-      <h3 className="text-sm font-semibold text-ink">Could not read the Apps view</h3>
-      <p className="max-w-lg text-xs text-ink-muted">{message}</p>
     </div>
   )
 }

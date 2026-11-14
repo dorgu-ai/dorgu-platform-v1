@@ -47,9 +47,9 @@ export function HealthBadge({
     <div className="flex min-w-0 flex-col items-start gap-0.5">
       <Tooltip content={note}>
         <Badge tone={healthTone[status]} className="cursor-default">
-          <Dot tone={healthTone[status]} pulse={status === 'Unhealthy'} />
+          <Dot tone={healthTone[status]} />
           {status}
-          {source === 'observed' && <span className="text-ink-faint">observed</span>}
+          {source === 'observed' && <span className="text-ink-muted">observed</span>}
         </Badge>
       </Tooltip>
       {/*
@@ -59,7 +59,7 @@ export function HealthBadge({
       */}
       {disagreement && (
         <Tooltip content={disagreement}>
-          <span className="cursor-default truncate text-[10px] text-warn">
+          <span className="cursor-default truncate text-caption text-warn">
             operator says otherwise
           </span>
         </Tooltip>
@@ -72,16 +72,18 @@ const dotColour: Record<BadgeTone, string> = {
   ok: 'bg-ok',
   warn: 'bg-warn',
   danger: 'bg-danger',
-  info: 'bg-info',
+  accent: 'bg-accent',
+  machine: 'bg-machine',
+  'warn-outline': 'bg-warn',
   neutral: 'bg-ink-faint',
   outline: 'bg-ink-faint',
 }
 
-export function Dot({ tone, pulse = false }: { tone: BadgeTone; pulse?: boolean }) {
+export function Dot({ tone }: { tone: BadgeTone }) {
   return (
     <span
       aria-hidden="true"
-      className={cn('inline-block size-1.5 shrink-0 rounded-full', dotColour[tone], pulse && 'pulse-slow')}
+      className={cn('inline-block size-1.5 shrink-0 rounded-full', dotColour[tone])}
     />
   )
 }
@@ -93,14 +95,14 @@ export function Dot({ tone, pulse = false }: { tone: BadgeTone; pulse?: boolean 
 const severityTone: Record<Severity, BadgeTone> = {
   critical: 'danger',
   warning: 'warn',
-  info: 'info',
+  info: 'neutral',
 }
 
 export function SeverityBadge({ severity }: { severity: Severity }) {
   const tone = severityTone[severity] ?? 'neutral'
   return (
     <Badge tone={tone} className="uppercase tracking-wide">
-      <Dot tone={tone} pulse={severity === 'critical'} />
+      <Dot tone={tone} />
       {severity}
     </Badge>
   )
@@ -113,7 +115,7 @@ export function SeverityBadge({ severity }: { severity: Severity }) {
 /**
  * What each owner means for what Dorgu will do.
  *
- * Only 'unmanaged' permits the CLI to patch the Deployment. Everything else,
+ * Only 'unmanaged' permits the CLI to patch a Deployment. Everything else,
  * including 'unknown', means Dorgu explains and does not write. Saying so here
  * is how a user learns which of their apps can be healed before they try, rather
  * than from a refusal afterwards.
@@ -121,7 +123,7 @@ export function SeverityBadge({ severity }: { severity: Severity }) {
 const managedByNote: Record<ManagedBy, string> = {
   helm: 'Owned by a Helm release. Dorgu will explain a fix rather than patch the Deployment, because patching it would make the next helm upgrade fail on a field-manager conflict.',
   argocd:
-    'Owned by an ArgoCD application. Dorgu will explain a fix rather than patch the Deployment; ArgoCD would revert it or report it as drift.',
+    'Owned by an Argo CD application. Dorgu will explain a fix rather than patch the Deployment; Argo CD would revert it or report it as drift.',
   flux: 'Reconciled by a Flux controller. Dorgu will explain a fix rather than patch the Deployment.',
   kustomize:
     'Declared through a kustomize overlay. Dorgu will explain a fix rather than patch the Deployment.',
@@ -131,30 +133,46 @@ const managedByNote: Record<ManagedBy, string> = {
     'The owner could not be determined. Dorgu treats unknown as owned and will explain rather than write, because absence of evidence that patching is safe is not evidence that it is.',
 }
 
-const managedByTone: Record<ManagedBy, BadgeTone> = {
-  helm: 'info',
-  argocd: 'info',
-  flux: 'info',
-  kustomize: 'info',
-  unmanaged: 'ok',
-  unknown: 'neutral',
+const managedByLabel: Record<ManagedBy, string> = {
+  helm: 'Helm',
+  argocd: 'Argo CD',
+  flux: 'Flux',
+  kustomize: 'Kustomize',
+  unmanaged: 'Unmanaged',
+  unknown: 'Unknown owner',
 }
 
+/** The sentence that goes with every owner Dorgu will not write. */
+export const ADVISORY_ONLY = 'advisory only: Dorgu will not write this workload'
+
+/**
+ * The ownership badge, section 5.3. `Unmanaged` is neutral; Helm, Argo CD, Flux
+ * and Kustomize are warn outline, and carry the advisory sentence. An unknown
+ * owner is treated as owned, so it carries the sentence too but is not coloured
+ * as a fact about a named owner.
+ */
 export function ManagedByBadge({
   managedBy,
   detail,
+  showAdvisory = false,
 }: {
   managedBy: ManagedBy
   detail?: string
+  showAdvisory?: boolean
 }) {
   const note = [detail, managedByNote[managedBy] ?? ''].filter(Boolean).join(' ')
+  const writable = managedBy === 'unmanaged'
+  const named = managedBy !== 'unmanaged' && managedBy !== 'unknown'
 
   return (
-    <Tooltip content={note}>
-      <Badge tone={managedByTone[managedBy] ?? 'neutral'} className="cursor-default font-mono">
-        {managedBy}
-      </Badge>
-    </Tooltip>
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      <Tooltip content={note}>
+        <Badge tone={named ? 'warn-outline' : 'neutral'} className="cursor-default">
+          {managedByLabel[managedBy] ?? managedBy}
+        </Badge>
+      </Tooltip>
+      {showAdvisory && !writable && <span className="text-small text-ink-muted">{ADVISORY_ONLY}</span>}
+    </span>
   )
 }
 

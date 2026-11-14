@@ -56,8 +56,11 @@ type Store struct {
 	incidents       map[Key]*dorguv1.IncidentMemory
 	remediations    map[Key]*dorguv1.RemediationAction
 	dorguEvents     map[Key]*dorguv1.DorguEvent
-	deployments     map[Key]*appsv1.Deployment
-	pods            map[Key]*corev1.Pod
+	// actionEvents are the core/v1 Events whose involved object is a
+	// RemediationAction: the CLI records its declines there, and the report counts them.
+	actionEvents map[Key]*corev1.Event
+	deployments  map[Key]*appsv1.Deployment
+	pods         map[Key]*corev1.Pod
 	// nodes is keyed like everything else even though a Node is cluster-scoped,
 	// so its namespace is always empty. One key type beats a second one that
 	// exists only to omit a field.
@@ -108,6 +111,7 @@ func New(notify func(Topic)) *Store {
 		incidents:       map[Key]*dorguv1.IncidentMemory{},
 		remediations:    map[Key]*dorguv1.RemediationAction{},
 		dorguEvents:     map[Key]*dorguv1.DorguEvent{},
+		actionEvents:    map[Key]*corev1.Event{},
 		deployments:     map[Key]*appsv1.Deployment{},
 		pods:            map[Key]*corev1.Pod{},
 		nodes:           map[Key]*corev1.Node{},
@@ -129,12 +133,12 @@ func (s *Store) PutAppPersona(obj *dorguv1.ApplicationPersona) {
 	}
 	s.write(func() {
 		s.appPersonas[keyOf(obj.Namespace, obj.Name)] = obj.DeepCopy()
-	}, TopicApps)
+	}, TopicApps, TopicOverview)
 }
 
 // DeleteAppPersona removes a persona.
 func (s *Store) DeleteAppPersona(namespace, name string) {
-	s.write(func() { delete(s.appPersonas, keyOf(namespace, name)) }, TopicApps)
+	s.write(func() { delete(s.appPersonas, keyOf(namespace, name)) }, TopicApps, TopicOverview)
 }
 
 // AppPersonas returns copies of every stored persona.
@@ -159,12 +163,12 @@ func (s *Store) PutClusterPersona(obj *dorguv1.ClusterPersona) {
 	}
 	s.write(func() {
 		s.clusterPersonas[keyOf(obj.Namespace, obj.Name)] = obj.DeepCopy()
-	}, TopicCluster)
+	}, TopicCluster, TopicOverview)
 }
 
 // DeleteClusterPersona removes a cluster persona.
 func (s *Store) DeleteClusterPersona(namespace, name string) {
-	s.write(func() { delete(s.clusterPersonas, keyOf(namespace, name)) }, TopicCluster)
+	s.write(func() { delete(s.clusterPersonas, keyOf(namespace, name)) }, TopicCluster, TopicOverview)
 }
 
 // ClusterPersonas returns copies of every stored cluster persona.
@@ -191,12 +195,12 @@ func (s *Store) PutIncident(obj *dorguv1.IncidentMemory) {
 	}
 	s.write(func() {
 		s.incidents[keyOf(obj.Namespace, obj.Name)] = obj.DeepCopy()
-	}, TopicIncidents, TopicApps)
+	}, TopicIncidents, TopicApps, TopicOverview, TopicMemory)
 }
 
 // DeleteIncident removes an incident.
 func (s *Store) DeleteIncident(namespace, name string) {
-	s.write(func() { delete(s.incidents, keyOf(namespace, name)) }, TopicIncidents, TopicApps)
+	s.write(func() { delete(s.incidents, keyOf(namespace, name)) }, TopicIncidents, TopicApps, TopicOverview, TopicMemory)
 }
 
 // Incidents returns copies of every stored incident.
@@ -221,12 +225,12 @@ func (s *Store) PutRemediation(obj *dorguv1.RemediationAction) {
 	}
 	s.write(func() {
 		s.remediations[keyOf(obj.Namespace, obj.Name)] = obj.DeepCopy()
-	}, TopicRemediations)
+	}, TopicRemediations, TopicOverview)
 }
 
 // DeleteRemediation removes a remediation.
 func (s *Store) DeleteRemediation(namespace, name string) {
-	s.write(func() { delete(s.remediations, keyOf(namespace, name)) }, TopicRemediations)
+	s.write(func() { delete(s.remediations, keyOf(namespace, name)) }, TopicRemediations, TopicOverview)
 }
 
 // Remediations returns copies of every stored remediation.
@@ -265,6 +269,38 @@ func (s *Store) DorguEvents() []*dorguv1.DorguEvent {
 	defer s.mu.RUnlock()
 	out := make([]*dorguv1.DorguEvent, 0, len(s.dorguEvents))
 	for _, e := range s.dorguEvents {
+		out = append(out, e.DeepCopy())
+	}
+	return out
+}
+
+// ---------------------------------------------------------------------------
+// Events about RemediationActions
+// ---------------------------------------------------------------------------
+
+// PutActionEvent stores a copy of an Event whose involved object is a
+// RemediationAction.
+func (s *Store) PutActionEvent(obj *corev1.Event) {
+	if obj == nil {
+		return
+	}
+	s.write(func() {
+		s.actionEvents[keyOf(obj.Namespace, obj.Name)] = obj.DeepCopy()
+	}, TopicOverview)
+}
+
+// DeleteActionEvent removes an Event. Kubernetes expires Events after about an
+// hour by default, so this fires constantly on a busy cluster.
+func (s *Store) DeleteActionEvent(namespace, name string) {
+	s.write(func() { delete(s.actionEvents, keyOf(namespace, name)) }, TopicOverview)
+}
+
+// ActionEvents returns copies of every stored Event about a RemediationAction.
+func (s *Store) ActionEvents() []*corev1.Event {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]*corev1.Event, 0, len(s.actionEvents))
+	for _, e := range s.actionEvents {
 		out = append(out, e.DeepCopy())
 	}
 	return out
@@ -382,7 +418,7 @@ func (s *Store) SyncFailure(name string) string {
 // allTopicsForReadiness are the topics whose payload carries a readiness block,
 // so a change in what the caches know republishes every view that reports it.
 var allTopicsForReadiness = []Topic{
-	TopicMeta, TopicApps, TopicIncidents, TopicRemediations, TopicCluster,
+	TopicMeta, TopicApps, TopicIncidents, TopicRemediations, TopicCluster, TopicOverview, TopicMemory,
 }
 
 // Synced reports whether a named informer finished its initial list.

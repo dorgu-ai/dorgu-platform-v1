@@ -52,6 +52,7 @@ export function DataTable<TData extends Identifiable>({
   emptyState,
   flashedIds,
   rowDetail,
+  selectedId,
   ariaLabel,
 }: {
   /**
@@ -84,6 +85,8 @@ export function DataTable<TData extends Identifiable>({
    * without the list mispositioning the rows after it.
    */
   rowDetail?: (row: TData) => React.ReactNode
+  /** The row under review: it gets the accent-soft selected background. */
+  selectedId?: string
   ariaLabel: string
 }) {
   const [sorting, setSorting] = useState<SortingState>(initialSorting)
@@ -124,10 +127,15 @@ export function DataTable<TData extends Identifiable>({
 
   const virtualRows = virtualizer.getVirtualItems()
 
+  // The scroll container is outside the table and the table is inside it. A
+  // keyboard user has to be able to scroll the region (it is focusable), and a
+  // focusable div is not an allowed child of role="table", so the two cannot be
+  // the same element or parent and child the other way round.
   return (
-    <div className="flex min-h-0 flex-1 flex-col" role="table" aria-label={ariaLabel}>
+    <div ref={scrollRef} tabIndex={0} className="min-h-0 flex-1 overflow-auto outline-offset-[-2px]">
+    <div role="table" aria-label={ariaLabel} className="flex flex-col">
       <div
-        className="grid shrink-0 items-center gap-4 border-b border-line bg-surface-sunken px-4 py-2"
+        className="sticky top-0 z-10 grid shrink-0 items-center gap-4 border-b border-line bg-surface-sunken px-6 py-2"
         style={{ gridTemplateColumns: gridTemplate }}
         role="row"
       >
@@ -148,7 +156,7 @@ export function DataTable<TData extends Identifiable>({
                     : undefined
               }
               className={cn(
-                'text-[11px] font-semibold tracking-wide text-ink-faint uppercase',
+                'text-caption font-medium tracking-[0.04em] text-ink-muted uppercase',
                 meta?.numeric && 'text-right',
               )}
             >
@@ -157,7 +165,7 @@ export function DataTable<TData extends Identifiable>({
                   type="button"
                   onClick={header.column.getToggleSortingHandler()}
                   className={cn(
-                    'inline-flex items-center gap-1 hover:text-ink',
+                    'inline-flex items-center gap-1 uppercase tracking-[0.04em] hover:text-ink',
                     meta?.numeric && 'flex-row-reverse',
                   )}
                 >
@@ -173,10 +181,8 @@ export function DataTable<TData extends Identifiable>({
         })}
       </div>
 
-      {rows.length === 0 ? (
-        <div className="min-h-0 flex-1 overflow-auto">{emptyState}</div>
-      ) : (
-        <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
+      {rows.length > 0 && (
+        <div className="min-h-0 flex-1">
           <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
             {virtualRows.map((virtualRow) => {
               const row = rows[virtualRow.index]
@@ -200,7 +206,10 @@ export function DataTable<TData extends Identifiable>({
                 >
                   <div
                     role="row"
-                    className="grid w-full items-center gap-4 px-4 py-2.5 hover:bg-surface-raised"
+                    className={cn(
+                      'grid w-full items-center gap-4 px-6 py-2.5',
+                      selectedId === row.id ? 'bg-accent-soft' : 'hover:bg-surface-hover',
+                    )}
                     style={{ gridTemplateColumns: gridTemplate }}
                   >
                     {row.getVisibleCells().map((cell) => {
@@ -209,7 +218,7 @@ export function DataTable<TData extends Identifiable>({
                         <div
                           key={cell.id}
                           role="cell"
-                          className={cn('min-w-0 text-xs', meta?.numeric && 'text-right')}
+                          className={cn('min-w-0 text-table', meta?.numeric && 'text-right')}
                         >
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </div>
@@ -225,7 +234,7 @@ export function DataTable<TData extends Identifiable>({
                         against a header that promises several, and reports the
                         table as ragged.
                       */}
-                      <div role="cell" aria-colspan={visibleColumns.length} className="px-4 pb-3">
+                      <div role="cell" aria-colspan={visibleColumns.length} className="px-6 pb-3">
                         {detail}
                       </div>
                     </div>
@@ -236,6 +245,8 @@ export function DataTable<TData extends Identifiable>({
           </div>
         </div>
       )}
+    </div>
+    {rows.length === 0 && emptyState}
     </div>
   )
 }

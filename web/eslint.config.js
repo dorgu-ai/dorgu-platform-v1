@@ -4,8 +4,10 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
+import dorgu from './eslint-rules/no-raw-colour.js'
+
 export default tseslint.config(
-  { ignores: ['dist', '../internal/webui/dist', 'node_modules'] },
+  { ignores: ['dist', '../internal/webui/dist', 'node_modules', 'playwright-report', 'test-results', 'coverage'] },
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
@@ -25,13 +27,22 @@ export default tseslint.config(
         tsconfigRootDir: import.meta.dirname,
       },
     },
+    plugins: { dorgu },
     rules: {
+      // DESIGN.md section 9: tokens only. The stylesheet defines colours and is not a .ts or .tsx file.
+      'dorgu/no-raw-colour': 'error',
       '@typescript-eslint/consistent-type-imports': 'error',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
   },
   {
-    files: ['vite.config.ts', 'eslint.config.js'],
+    // The rule's own tests need colours to reject, and the contrast check is the
+    // one place token values are written down as numbers to be measured.
+    files: ['eslint-rules/**', 'src/design/**'],
+    rules: { 'dorgu/no-raw-colour': 'off' },
+  },
+  {
+    files: ['vite.config.ts', 'vitest.config.ts', 'playwright.config.ts', 'eslint.config.js', 'eslint-rules/**', 'scripts/**'],
     languageOptions: { globals: globals.node },
   },
 )

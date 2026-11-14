@@ -156,7 +156,8 @@ func TestIncidentChangesTouchBothViews(t *testing.T) {
 
 	// An app row shows its open incident count, so a new incident changes the
 	// Apps view as well as the Incidents feed.
-	assert.Equal(t, []Topic{TopicIncidents, TopicApps}, r.seen())
+	// The Overview report and the Memory list are built from incidents too.
+	assert.Equal(t, []Topic{TopicIncidents, TopicApps, TopicOverview, TopicMemory}, r.seen())
 }
 
 func TestTopicsPerResourceKind(t *testing.T) {
@@ -167,7 +168,7 @@ func TestTopicsPerResourceKind(t *testing.T) {
 	}{
 		{"persona", func(s *Store) {
 			s.PutAppPersona(&dorguv1.ApplicationPersona{ObjectMeta: metav1.ObjectMeta{Name: "a"}})
-		}, []Topic{TopicApps}},
+		}, []Topic{TopicApps, TopicOverview}},
 		{"deployment", func(s *Store) {
 			s.PutDeployment(&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "a"}})
 		}, []Topic{TopicApps}},
@@ -179,13 +180,16 @@ func TestTopicsPerResourceKind(t *testing.T) {
 		}, []Topic{TopicCluster}},
 		{"remediation", func(s *Store) {
 			s.PutRemediation(&dorguv1.RemediationAction{ObjectMeta: metav1.ObjectMeta{Name: "a"}})
-		}, []Topic{TopicRemediations}},
+		}, []Topic{TopicRemediations, TopicOverview}},
 		{"event", func(s *Store) {
 			s.PutDorguEvent(&dorguv1.DorguEvent{ObjectMeta: metav1.ObjectMeta{Name: "a"}})
 		}, []Topic{TopicEvents}},
 		{"cluster persona", func(s *Store) {
 			s.PutClusterPersona(&dorguv1.ClusterPersona{ObjectMeta: metav1.ObjectMeta{Name: "a"}})
-		}, []Topic{TopicCluster}},
+		}, []Topic{TopicCluster, TopicOverview}},
+		{"action event", func(s *Store) {
+			s.PutActionEvent(&corev1.Event{ObjectMeta: metav1.ObjectMeta{Name: "a"}})
+		}, []Topic{TopicOverview}},
 	}
 
 	for _, tt := range tests {
@@ -269,6 +273,23 @@ func TestConcurrentWritesAndReads(t *testing.T) {
 
 func TestAllTopicsCoversEveryConstant(t *testing.T) {
 	assert.ElementsMatch(t,
-		[]Topic{TopicApps, TopicIncidents, TopicRemediations, TopicEvents, TopicCluster, TopicMeta},
+		[]Topic{TopicApps, TopicIncidents, TopicRemediations, TopicEvents, TopicCluster, TopicOverview, TopicMemory, TopicMeta},
 		AllTopics)
+}
+
+func TestActionEventsAreCopiedInAndOut(t *testing.T) {
+	s := New(nil)
+	ev := &corev1.Event{ObjectMeta: metav1.ObjectMeta{Namespace: "shop", Name: "e1"}, Reason: "DorguCLINoTicket"}
+	s.PutActionEvent(ev)
+	ev.Reason = "scribbled-on"
+
+	got := s.ActionEvents()
+	assert.Len(t, got, 1)
+	assert.Equal(t, "DorguCLINoTicket", got[0].Reason)
+	got[0].Reason = "also-scribbled-on"
+	assert.Equal(t, "DorguCLINoTicket", s.ActionEvents()[0].Reason)
+
+	s.PutActionEvent(nil)
+	s.DeleteActionEvent("shop", "e1")
+	assert.Empty(t, s.ActionEvents())
 }
