@@ -2,7 +2,9 @@
 
 A local, read-only dashboard for what Dorgu sees in your Kubernetes cluster: your
 applications, the incidents detected against them, the remediations proposed for
-those incidents, and the cluster underneath all of it.
+those incidents, the operator's incident memory, the cluster underneath all of it,
+and an Overview of what Dorgu detected, proposed and healed, computed by the same
+code as `dorgu report`.
 
 ## The dashboard can do exactly what you can do, and nothing more
 
@@ -23,30 +25,47 @@ This is the whole security model, and it is short enough to check yourself:
   network out; the token keeps out everything else on your machine that can open a
   socket, including a web page in another tab. See [Session security](#session-security).
 - **It writes nothing.** Every endpoint is a read. There is no mutation in this
-  release at all. The Remediations view shows you a plan and hands you the CLI
-  command that can act on it; it cannot approve or apply anything itself.
+  release at all. The Proposals view shows you a plan and hands you the CLI
+  command that can act on it; it cannot approve or apply anything itself, and
+  approving from the dashboard arrives in a later release.
 
 An empty view is never silent about why. There are five reasons a list can be
 empty and they are five different screens: the caches are still warming, the
-operator's CRDs are not installed, the operator is installed and has found
-nothing, you genuinely have none of that thing, or **the read was refused**. The
-last one names the resource and the reason, because it is the only one you have
-to act on and the only one that will not resolve on its own.
+operator's CRDs are not installed, **the operator is installed and nothing is
+running** (so empty says nothing about your cluster), the operator is running and
+has recorded nothing (or you genuinely have none of that thing), or **the read was
+refused**. The last one names the resource and the reason, because it is the only
+one you have to act on and the only one that will not resolve on its own.
 
 ## What it shows
 
 | View | State | What it tells you |
 |---|---|---|
+| **Overview** | shipped | The KPI tiles from `pkg/report`, each with where it came from and over what window, open incidents, and the proposals waiting or expired. A figure with no sample says **no data**, never 0 |
+| **Incidents** | shipped | A live feed: severity, a signal badge with its recurrence (`r1`, `r2`) that opens the lineage, escalation, root cause, and **refusals kept apart from deferrals** |
+| **Proposals** (route `/remediations`) | shipped, read-only | The plan, and a review panel with the gate strip, the guardrail meters with their ceilings, the ownership badge, the ticket chip, the diff against the running container and the CLI command that can act. No approve button |
 | **Apps** | shipped | Your ApplicationPersonas **and the Deployments nothing is watching**, with health, who owns each workload, and the live resource block |
-| **Incidents** | shipped | A live feed: severity, signal, persona, root cause, confidence and which provider produced it |
-| **Remediations** | shipped, read-only | The ordered plan: per-step risk, auto against advisory, **the guardrail verdict as structured fact**, and the diff against the running container |
+| **Memory** | shipped | Every IncidentMemory, open or closed, with its conditions: `ProposalRefused` (the live state) next to `ProposalRefusalRecorded` (the durable record) |
 | **Cluster** | shipped | Nodes, capacity, add-ons and saturation, with **requested and used as two figures** and every number labelled with where it came from |
+| **Agents** | not in this release | Listed and disabled, with the reason. Connected agents arrive with the agent interface |
 
 Every view reports its own state to the browser, so what the navigation says can
 never drift from what the build does. A view this release cannot render would
-appear disabled with the reason on hover; none currently is. A view that renders
-and still cannot do something says so on hover instead, which is how the
-Remediations screen tells you it has no approve button before you look for one.
+appear disabled with the reason beside it, which is how Agents appears now. A view
+that renders and still cannot do something says so on hover instead, which is how
+the Proposals screen tells you it has no approve button before you look for one.
+
+### The Overview is `dorgu report`, computed in the browser's server
+
+The numbers on the Overview are not a second implementation. Both the CLI and the
+dashboard call `pkg/report`, a pure package over the operator's `api/v1` types, a
+clock and a window. The CLI reads through kubectl and converts; the dashboard reads
+its informer cache. The same records give the same numbers, and where an input is
+missing (the Events the CLI writes its declines to, for example) the report says
+**no data** or **not recorded** rather than showing a zero.
+
+Window defaults to 7 days, as `dorgu report` does; `24h` and `30d` are one click
+away, and any window `dorgu report --since` accepts works as `/overview?since=`.
 
 ### The Apps view lists what Dorgu is blind to
 
@@ -217,7 +236,7 @@ cluster-wide watch will otherwise be refused and the views will say so: a
 resource the dashboard could not read at all is named on screen with the reason,
 rather than leaving a loading skeleton on a read that already failed.
 
-`--namespace` scopes the Apps, Incidents and Remediations views. It deliberately
+`--namespace` scopes the Apps, Incidents, Proposals, Memory and Overview views. It deliberately
 does not scope the Cluster view: saturation is a property of the whole cluster,
 and summing one namespace's requests against every node's allocatable would
 produce a figure that is wrong in a way nobody could detect from the screen.
@@ -389,6 +408,9 @@ internal/webui        go:embed of the built SPA
 internal/workload     persona-to-Deployment matching and ownership detection
 web/                  the Vite + React SPA
 hack/devcluster       a real API server with fixtures, for local verification
+hack/fixture-server   the real server over fixtures in memory, no cluster, for the e2e tests
+pkg/report            the KPI computation shared with `dorgu report`
+internal/fixtures     the fixture clusters: full, and the five empty states
 ```
 
 `internal/workload` is a port of the operator's own `internal/workload`. Go
@@ -401,7 +423,7 @@ right fix is for the operator to promote that package to `pkg/`.
 ## Development
 
 ```bash
-make check      # everything CI runs: gofmt, vet, race tests, web typecheck, web lint
+make check      # what the first CI job runs: gofmt, vet, race tests, web typecheck, lint, Vitest
 make web        # build the SPA into internal/webui/dist
 make build      # build the binary with whatever is in that directory
 make web-dev    # Vite dev server on :5173, proxying /api to a dashboard on :7171
@@ -409,7 +431,34 @@ make web-dev    # Vite dev server on :5173, proxying /api to a dashboard on :717
                 # DORGU_DASHBOARD_TOKEN=<the token it printed> make web-dev
 make release-tag TAG=v0.1.0   # tag a commit that carries the built SPA (see above)
 make cover      # test coverage per package
+make e2e        # Playwright against fixture clusters: no Kubernetes needed
+make e2e-screenshots   # a screenshot of every view in both themes, into web/screenshots
 ```
+
+### Design system
+
+[`DESIGN.md`](DESIGN.md) is the design system and the living reference: tokens,
+type, components, states, motion and copy. It is enforced, not just written down:
+
+- `npm run lint` rejects raw hex values and arbitrary or default-palette colour
+  classes in `web/src`. Use a token, or add one with a reason.
+- `npm test` runs the contrast check over every token pair the design uses, in both
+  themes, reading the values from `src/styles.css`.
+- `make web-check-no-external` fails if the built `index.html` or CSS could request
+  anything from the network. Fonts (Inter and JetBrains Mono) are bundled.
+- The Playwright suite runs axe in both themes on every view, panel and empty state,
+  and fails on a serious or critical violation.
+
+### Tests
+
+- Go: `make test-race`. `pkg/report` carries the report's own tests, ported from the
+  CLI.
+- Frontend: Vitest and Testing Library for the components (gate strip, ticket chip,
+  ownership badge, machine text block, guardrail meter, the five empty states, the
+  review panel, the Overview).
+- End to end: Playwright drives the real server and SPA over `hack/fixture-server`,
+  one fixture cluster per scenario. On a fresh machine, `npx playwright install
+  --with-deps chromium` in `web/` once, then `make e2e`.
 
 `internal/webui/dist` holds a committed `.gitkeep` on purpose: without a file in
 it, `go:embed all:dist` matches nothing and `go build` fails on a fresh clone. A
@@ -422,7 +471,7 @@ and prefetched on hover. If a `vendor-*` chunk grows, a dependency did.
 
 ## Not in this release
 
-- **The approve action.** The Remediations view shows the plan, the guardrail
+- **The approve action.** The Proposals view shows the plan, the guardrail
   verdicts and the diff, and cannot apply any of it. That is a decision rather
   than an omission: the dashboard writes nothing to your cluster in this release,
   and the honest affordance is the CLI command that can act, not a disabled
